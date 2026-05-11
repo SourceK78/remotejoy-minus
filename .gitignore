@@ -1,0 +1,10 @@
+*.bin
+*.dis
+*.elf
+*.hex
+*.map
+*.o
+*.prx
+*.uf2
+exports.c
+rp2040-zero/build*/
