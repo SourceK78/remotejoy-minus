@@ -6,7 +6,7 @@ It can be operated with a PS1/PS2 controller via the RP2040-zero.
 Does not require psplink.prx or usbhostfs.prx on the PSP side.  
 
 Build PSP Plugin
------
+----------------
 
 Set PSPDEV/PATH if needed, then run:
 
@@ -25,7 +25,7 @@ The diagnostic build writes ms0:/rjm_standalone.log. The normal build does not
 write a log file.
 
 Build RP2040-zero Firmware
------------
+--------------------------
 
 The direct PSP USB host firmware is in:
 
@@ -43,11 +43,7 @@ The output UF2 is:
 
 	rp2040-zero/build/remotejoy_minus_standalone_usbhost.uf2
 
-UART0 is used for logs by default:
-
-	GPIO0  UART TX
-	GPIO1  UART RX
-	GND    common ground
+For wiring instructions between the RP2040-zero and a PS1/PS2 controller, please refer to [./rp2040-zero/README.md](./rp2040-zero/README.md).
 
 Install
 -------
@@ -62,7 +58,7 @@ Enable the plugin from the PSP recovery menu.
 Do not enable remotejoy.prx or RmoteJoyLite.prx because they conflict.  
 
 Acknowledgments
------
+---------------
 
 This implementation is based on the PSPLINKUSB/RemoteJoy controller protocol
 and USBHostFS-style endpoint layout. The PSP-side input injection logic is
