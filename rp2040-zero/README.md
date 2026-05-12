@@ -74,11 +74,11 @@ Motor power is not used.
 
 Default PS2 bitbang pins:
 
-	GPIO14  ATT / SEL / CS
-	GPIO15  CMD
-	GPIO16  DAT
-	GPIO17  CLK
-	GPIO18  ACK, optional and disabled by default
+	GPIO05  ATT / SEL / CS
+	GPIO06  CMD
+	GPIO07  DAT
+	GPIO08  CLK
+	GPIO26  ACK(optional)
 	GND     common ground
 	3V3     controller VCC for logic-only testing
 
