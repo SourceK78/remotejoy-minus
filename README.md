@@ -1,8 +1,8 @@
 remotejoy-minus standalone
 ==========================
 
-This is a standalone PSP PRX variant of remotejoy.  
-It can be operated with a PS1/PS2 controller via the RP2040-zero.  
+This is the RP2040-zero standalone version of remotejoy, with the video output function removed and enabling control via PS1/PS2 controllers.  
+By combining it with the external output function of the PSP-2000/3000, remote play using a TV screen is possible without a PC.  
 Does not require psplink.prx or usbhostfs.prx on the PSP side.  
 
 Build PSP Plugin
