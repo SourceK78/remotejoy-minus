@@ -1,0 +1,10 @@
+﻿Designator,Footprint,Quantity,Value,LCSC Part #
+CN1,CONN-TH_B2B-PH-K-S,1,USB_PW(5V),
+CN2,CONN-TH_B2B-PH-K-S,1,PSP_PW,
+CN3,CONN-TH_B2B-PH-K-S,1,PW_SWITCH,
+D1,D_DO-41_SOD81_P10.16mm_Horizontal,1,1N5819,
+J1,PinHeader_1x03_P2.54mm_Vertical,1,Serial,
+J2,PinSocket_1x04_P2.54mm_Vertical,1,LED,
+JOY1,ps_controller,1,~,
+"R1, R2",R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,2,1kΩ,
+RZ1,RP2040-Zero,1,RP2040-Zero,

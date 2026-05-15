@@ -134,3 +134,25 @@ Analog stick:
 
 The firmware polls every 20 ms, diffs the current state against the previous
 state, and sends only the required RemoteJoyMinus button/analog events.
+
+PCB
+---
+
+It is possible to create circuit boards using services such as JLCPCB and PCBWAY by utilizing the data in the [./pcb](./pcb) folder.
+
+### BOM
+| **Reference** | **Part** | **Link** |
+|---------|------|------|
+|U1 | RP2040-zero (Not welding) | - |
+|JOY1 | PS2 Controller Connector (90 degrees Female) | [aliexpress](https://aliexpress.com/item/1005006039721141.html) |
+|D1 | SCHOTTKY DIODE 1N5819 (TH) | - |
+|R1, R2 | 1k Ohm resistor (TH) | - |
+
+<img src="./pcb/pcb.png" />
+
+Case
+----
+
+You can download the STL file from the link below and create a dock case for your PCB using a 3D printer.  
+If you don't have a 3D printer, you can also commission JLC3DP or PCBWAY to make one for you.  
+https://www.printables.com/model/1718482-remotojoy-minus-dock  
