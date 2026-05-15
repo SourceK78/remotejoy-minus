@@ -29,11 +29,14 @@ PSP_MODULE_INFO("RemoteJoyMinus", PSP_MODULE_KERNEL, 1, 1);
 #define REMOTE_VIRTUAL_R2 PSP_CTRL_VOLUP
 #define REMOTE_INTERNAL_BUTTONS (REMOTE_HOME_BUTTON | REMOTE_SOUND_BUTTON | REMOTE_VIRTUAL_L2 | REMOTE_VIRTUAL_R2)
 #define REMOTE_IMPOSE_BUTTONS (REMOTE_INTERNAL_BUTTONS)
-#define REMOTE_SPECIAL_BUTTONS (REMOTE_INTERNAL_BUTTONS | PSP_CTRL_START)
 #define REMOTE_VOLUME_COMBO_BUTTONS (REMOTE_VIRTUAL_L2 | REMOTE_VIRTUAL_R2)
+#define REMOTE_DISPLAY_COMBO_BUTTON PSP_CTRL_LEFT
+#define REMOTE_SPECIAL_BUTTONS (REMOTE_INTERNAL_BUTTONS | PSP_CTRL_START | REMOTE_DISPLAY_COMBO_BUTTON)
 #define ANALOG_CENTER 0x80
 #define PSP_VOLUME_MIN 0
 #define PSP_VOLUME_MAX 30
+#define PSP_BRIGHTNESS_MIN 0
+#define PSP_BRIGHTNESS_MAX 3
 #define PSP_EQUALIZER_MIN 0
 #define PSP_EQUALIZER_MAX 4
 #define SPECIAL_POLL_US 50000
@@ -41,6 +44,7 @@ PSP_MODULE_INFO("RemoteJoyMinus", PSP_MODULE_KERNEL, 1, 1);
 #define VOLUME_REPEAT_DELAY_MS 400
 #define VOLUME_REPEAT_INTERVAL_MS 120
 #define SOUND_HOLD_MS 900
+#define DISPLAY_HOLD_MS 900
 #define REBOOT_LOAD_MODULE_AFTER "/kd/usersystemlib.prx"
 #define REBOOT_LOAD_MAX_PRX_SIZE (256 * 1024)
 
@@ -173,6 +177,10 @@ static unsigned int sanitize_remote_buttons(unsigned int buttons)
 {
 	unsigned int internal_buttons = REMOTE_INTERNAL_BUTTONS;
 
+	if((buttons & PSP_CTRL_START) && (buttons & REMOTE_DISPLAY_COMBO_BUTTON))
+	{
+		buttons &= ~(PSP_CTRL_START | REMOTE_DISPLAY_COMBO_BUTTON);
+	}
 	if((buttons & PSP_CTRL_START) && (buttons & REMOTE_VOLUME_COMBO_BUTTONS))
 	{
 		buttons &= ~PSP_CTRL_START;
@@ -423,11 +431,15 @@ static int special_button_thread(SceSize args, void *argp)
 	int vol_up_wait = 0;
 	int sound_hold = 0;
 	int sound_long_done = 0;
+	int display_hold = 0;
+	int display_long_done = 0;
+	int prev_display_combo = 0;
 
 	while(g_special_thread_run)
 	{
 		unsigned int buttons = get_current_buttons() & REMOTE_SPECIAL_BUTTONS;
 		unsigned int pressed;
+		int display_combo = ((buttons & PSP_CTRL_START) && (buttons & REMOTE_DISPLAY_COMBO_BUTTON));
 
 		if(seen_reset_serial != g_input_reset_serial)
 		{
@@ -437,6 +449,9 @@ static int special_button_thread(SceSize args, void *argp)
 			vol_up_wait = 0;
 			sound_hold = 0;
 			sound_long_done = 0;
+			display_hold = 0;
+			display_long_done = 0;
+			prev_display_combo = display_combo;
 		}
 		pressed = buttons & ~prev_buttons;
 
@@ -460,6 +475,11 @@ static int special_button_thread(SceSize args, void *argp)
 		{
 			sound_hold = 0;
 			sound_long_done = 0;
+		}
+		if(display_combo && !prev_display_combo)
+		{
+			display_hold = 0;
+			display_long_done = 0;
 		}
 
 		if((buttons & PSP_CTRL_START) && (buttons & REMOTE_VIRTUAL_L2))
@@ -509,6 +529,27 @@ static int special_button_thread(SceSize args, void *argp)
 			sound_long_done = 0;
 		}
 
+		if(display_combo)
+		{
+			display_hold += SPECIAL_POLL_MS;
+			if(!display_long_done && display_hold >= DISPLAY_HOLD_MS)
+			{
+				rjmLogText("display hold ignored: tvout needs VSH display switch\n");
+				display_long_done = 1;
+			}
+		}
+		if(prev_display_combo && !display_combo)
+		{
+			if(!display_long_done)
+			{
+				cycle_impose_param(PSP_IMPOSE_BACKLIGHT_BRIGHTNESS,
+					PSP_BRIGHTNESS_MIN, PSP_BRIGHTNESS_MAX);
+			}
+			display_hold = 0;
+			display_long_done = 0;
+		}
+
+		prev_display_combo = display_combo;
 		prev_buttons = buttons;
 		sceKernelDelayThread(SPECIAL_POLL_US);
 	}
@@ -518,15 +559,15 @@ static int special_button_thread(SceSize args, void *argp)
 
 static void update_system_button_intercepts(unsigned int buttons)
 {
-	unsigned int pressed = buttons & REMOTE_HOME_BUTTON;
+	unsigned int pressed = 0;
 	unsigned int changed = pressed ^ g_intercept_buttons;
 	unsigned int k1;
 
-	if(is_pops_context())
+	if(!is_pops_context() && (buttons & REMOTE_HOME_BUTTON))
 	{
-		pressed = 0;
-		changed = g_intercept_buttons;
+		pressed |= REMOTE_HOME_BUTTON;
 	}
+	changed = pressed ^ g_intercept_buttons;
 	if(changed == 0)
 	{
 		return;

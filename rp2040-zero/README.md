@@ -88,25 +88,26 @@ work but analog stick reports stay centered.
 
 Default PS2 to PSP mapping:
 
-	PS2 cross     PSP cross
-	PS2 circle    PSP circle
-	PS2 square    PSP square
-	PS2 triangle  PSP triangle
-	PS2 d-pad     PSP d-pad
-	PS2 start     PSP start
-	PS2 select    PSP select
-	PS2 L1        PSP L trigger
-	PS2 R1        PSP R trigger
-	PS2 L2        PSP analog left
-	PS2 R2        PSP analog right
-	PS2 L2 + R2   PSP analog up
-	PS2 start+L2  PSP volume down
-	PS2 start+R2  PSP volume up
-	PS2 L3        PSP sound
-	PS2 right stick PSP d-pad, disabled by default
-	PS2 R3        PSP home
-	PS2 start+right PSP home
-	PS2 start+R3  toggle right stick to d-pad mapping
+	PS2 cross     	PSP cross
+	PS2 circle    	PSP circle
+	PS2 square    	PSP square
+	PS2 triangle  	PSP triangle
+	PS2 d-pad     	PSP d-pad
+	PS2 start     	PSP start
+	PS2 select    	PSP select
+	PS2 L1        	PSP L trigger
+	PS2 R1        	PSP R trigger
+	PS2 L2        	PSP analog left (for PS Archives)
+	PS2 R2        	PSP analog right (for PS Archives)
+	PS2 L2 + R2   	PSP analog up (for PS Archives)
+	PS2 L3        	PSP sound
+	PS2 R3        	PSP home
+	PS2 right stick	PSP d-pad, disabled by default
+	PS2 start+L2  	PSP volume down
+	PS2 start+R2  	PSP volume up
+	PS2 start+left 	PSP display(Brightness only)
+	PS2 start+right PSP home(Alternative)
+	PS2 start+R3  	toggle right stick to d-pad mapping
 
 GPIO/ADC Test Wiring
 --------------------
