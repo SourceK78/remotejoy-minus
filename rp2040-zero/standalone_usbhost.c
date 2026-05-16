@@ -141,7 +141,15 @@ static uint8_t g_last_x = 128;
 static uint8_t g_last_y = 128;
 static uint32_t g_last_poll_ms;
 static uint32_t g_last_heartbeat_ms;
-static int g_right_stick_dpad_enabled;
+enum RightStickMode
+{
+	RIGHT_STICK_MODE_OFF = 0,
+	RIGHT_STICK_MODE_DPAD,
+	RIGHT_STICK_MODE_FACE_SWAP,
+	RIGHT_STICK_MODE_COUNT
+};
+
+static int g_right_stick_mode = RIGHT_STICK_MODE_OFF;
 static int g_last_ps2_r3_pressed;
 static uint32_t g_ps2_analog_retry_start_ms;
 static uint32_t g_ps2_analog_retry_last_ms;
@@ -522,10 +530,20 @@ static uint32_t ps2_buttons_to_psp(uint32_t ps2)
 	if((ps2 & PS2_BTN_START) && (ps2 & PS2_BTN_RIGHT)) psp |= PSP_CTRL_HOME;
 	/* R3 is HOME unless START is held; START+R3 toggles the right-stick D-pad layer. */
 	if((ps2 & PS2_BTN_R3) && !(ps2 & PS2_BTN_START)) psp |= PSP_CTRL_HOME;
-	if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_TRIANGLE;
-	if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_CIRCLE;
-	if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_CROSS;
-	if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_SQUARE;
+	if(g_right_stick_mode == RIGHT_STICK_MODE_FACE_SWAP)
+	{
+		if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_UP;
+		if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_RIGHT;
+		if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_DOWN;
+		if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_LEFT;
+	}
+	else
+	{
+		if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_TRIANGLE;
+		if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_CIRCLE;
+		if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_CROSS;
+		if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_SQUARE;
+	}
 
 	return psp;
 }
@@ -555,15 +573,52 @@ static uint32_t ps2_right_stick_to_dpad(uint8_t rx, uint8_t ry)
 	return buttons;
 }
 
-static void update_right_stick_dpad_toggle(uint32_t ps2_buttons)
+static uint32_t ps2_right_stick_to_face(uint8_t rx, uint8_t ry)
+{
+	uint32_t buttons = 0;
+
+	if(rx < PS2_STICK_LOW)
+	{
+		buttons |= PSP_CTRL_SQUARE;
+	}
+	else if(rx > PS2_STICK_HIGH)
+	{
+		buttons |= PSP_CTRL_CIRCLE;
+	}
+
+	if(ry < PS2_STICK_LOW)
+	{
+		buttons |= PSP_CTRL_TRIANGLE;
+	}
+	else if(ry > PS2_STICK_HIGH)
+	{
+		buttons |= PSP_CTRL_CROSS;
+	}
+
+	return buttons;
+}
+
+static const char *right_stick_mode_name(int mode)
+{
+	switch(mode)
+	{
+		case RIGHT_STICK_MODE_DPAD:
+			return "right stick to D-pad";
+		case RIGHT_STICK_MODE_FACE_SWAP:
+			return "right stick to face buttons, face buttons to D-pad";
+		default:
+			return "off";
+	}
+}
+
+static void update_right_stick_mode_toggle(uint32_t ps2_buttons)
 {
 	int r3_pressed = (ps2_buttons & PS2_BTN_R3) != 0;
 
 	if((ps2_buttons & PS2_BTN_START) && r3_pressed && !g_last_ps2_r3_pressed)
 	{
-		g_right_stick_dpad_enabled = !g_right_stick_dpad_enabled;
-		printf("Right stick to D-pad mapping %s\n",
-			g_right_stick_dpad_enabled ? "enabled" : "disabled");
+		g_right_stick_mode = (g_right_stick_mode + 1) % RIGHT_STICK_MODE_COUNT;
+		printf("Right stick mode: %s\n", right_stick_mode_name(g_right_stick_mode));
 	}
 
 	g_last_ps2_r3_pressed = r3_pressed;
@@ -585,15 +640,20 @@ static int read_ps2_controller_state(struct ControllerState *state)
 
 	ps2_buttons = (~(((uint32_t) rx[PS2_RESP_BUTTON_HI] << 8) |
 		rx[PS2_RESP_BUTTON_LO])) & 0xFFFFUL;
-	update_right_stick_dpad_toggle(ps2_buttons);
+	update_right_stick_mode_toggle(ps2_buttons);
 	state->buttons = ps2_buttons_to_psp(ps2_buttons);
 
 	if(ps2_is_analog_mode(rx[PS2_RESP_MODE]))
 	{
 		g_ps2_analog_retry_start_ms = 0;
-		if(g_right_stick_dpad_enabled)
+		if(g_right_stick_mode == RIGHT_STICK_MODE_DPAD)
 		{
 			state->buttons |= ps2_right_stick_to_dpad(
+				rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
+		}
+		else if(g_right_stick_mode == RIGHT_STICK_MODE_FACE_SWAP)
+		{
+			state->buttons |= ps2_right_stick_to_face(
 				rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
 		}
 		state->x = rx[PS2_RESP_LEFT_X];
