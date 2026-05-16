@@ -102,14 +102,14 @@ Default PS2 to PSP mapping:
 	PS2 L2 + R2   	PSP analog up (for PS Archives)
 	PS2 L3        	PSP sound
 	PS2 R3        	PSP home
-	PS2 right stick	mode off by default, toggled by start+R3
-	  mode 1: right stick PSP d-pad
-	  mode 2: right stick PSP face buttons, PS2 face buttons PSP d-pad
 	PS2 start+L2  	PSP volume down
 	PS2 start+R2  	PSP volume up
 	PS2 start+left 	PSP display(Brightness only)
 	PS2 start+right PSP home(Alternative)
 	PS2 start+R3  	cycle right stick mapping mode
+	PS2 right stick	mode off by default, switch by start+R3
+	  mode 1: right stick PSP d-pad
+	  mode 2: right stick PSP face buttons, PS2 face buttons PSP d-pad
 
 GPIO/ADC Test Wiring
 --------------------
