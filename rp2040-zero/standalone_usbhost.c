@@ -59,6 +59,11 @@
 #define PS2_STICK_LOW 80
 #define PS2_STICK_HIGH 176
 
+#define STATUS_LED_PIN_R 27
+#define STATUS_LED_PIN_G 28
+#define STATUS_LED_PIN_B 29
+#define STATUS_LED_ACTIVE_LOW 0
+
 #define PS2_BTN_SELECT   0x0001UL
 #define PS2_BTN_L3       0x0002UL
 #define PS2_BTN_R3       0x0004UL
@@ -141,6 +146,8 @@ static uint8_t g_last_x = 128;
 static uint8_t g_last_y = 128;
 static uint32_t g_last_poll_ms;
 static uint32_t g_last_heartbeat_ms;
+static int g_status_led_initialized;
+static int g_status_led_last_color = -1;
 enum RightStickMode
 {
 	RIGHT_STICK_MODE_OFF = 0,
@@ -161,6 +168,91 @@ static void hostfs_magic_sent_cb(tuh_xfer_t *xfer);
 static void hostfs_hello_read_cb(tuh_xfer_t *xfer);
 static void hostfs_hello_response_sent_cb(tuh_xfer_t *xfer);
 static void joy_event_sent_cb(tuh_xfer_t *xfer);
+
+enum StatusLedColor
+{
+	STATUS_LED_RED = 0,
+	STATUS_LED_GREEN,
+	STATUS_LED_BLUE,
+	STATUS_LED_MAGENTA
+};
+
+static void status_led_put_pin(uint8_t pin, int on)
+{
+	gpio_put(pin, STATUS_LED_ACTIVE_LOW ? !on : on);
+}
+
+static void status_led_set_color(int color)
+{
+	int red = 0;
+	int green = 0;
+	int blue = 0;
+
+	if(!g_status_led_initialized || color == g_status_led_last_color)
+	{
+		return;
+	}
+
+	switch(color)
+	{
+		case STATUS_LED_GREEN:
+			green = 1;
+			break;
+		case STATUS_LED_BLUE:
+			blue = 1;
+			break;
+		case STATUS_LED_MAGENTA:
+			red = 1;
+			blue = 1;
+			break;
+		case STATUS_LED_RED:
+		default:
+			red = 1;
+			break;
+	}
+
+	status_led_put_pin(STATUS_LED_PIN_R, red);
+	status_led_put_pin(STATUS_LED_PIN_G, green);
+	status_led_put_pin(STATUS_LED_PIN_B, blue);
+	g_status_led_last_color = color;
+}
+
+static void update_status_led(void)
+{
+	if(!g_handshake_complete)
+	{
+		status_led_set_color(STATUS_LED_RED);
+		return;
+	}
+
+	switch(g_right_stick_mode)
+	{
+		case RIGHT_STICK_MODE_DPAD:
+			status_led_set_color(STATUS_LED_GREEN);
+			break;
+		case RIGHT_STICK_MODE_FACE_SWAP:
+			status_led_set_color(STATUS_LED_MAGENTA);
+			break;
+		case RIGHT_STICK_MODE_OFF:
+		default:
+			status_led_set_color(STATUS_LED_BLUE);
+			break;
+	}
+}
+
+static void init_status_led(void)
+{
+	gpio_init(STATUS_LED_PIN_R);
+	gpio_set_dir(STATUS_LED_PIN_R, GPIO_OUT);
+	gpio_init(STATUS_LED_PIN_G);
+	gpio_set_dir(STATUS_LED_PIN_G, GPIO_OUT);
+	gpio_init(STATUS_LED_PIN_B);
+	gpio_set_dir(STATUS_LED_PIN_B, GPIO_OUT);
+
+	g_status_led_initialized = 1;
+	g_status_led_last_color = -1;
+	update_status_led();
+}
 
 static uint16_t le16(const uint8_t *p)
 {
@@ -195,6 +287,7 @@ static void clear_endpoints(void)
 	g_last_ps2_r3_pressed = 0;
 	g_event_head = 0;
 	g_event_tail = 0;
+	update_status_led();
 }
 
 static void reset_input_diff_state(void)
@@ -619,6 +712,7 @@ static void update_right_stick_mode_toggle(uint32_t ps2_buttons)
 	{
 		g_right_stick_mode = (g_right_stick_mode + 1) % RIGHT_STICK_MODE_COUNT;
 		printf("Right stick mode: %s\n", right_stick_mode_name(g_right_stick_mode));
+		update_status_led();
 	}
 
 	g_last_ps2_r3_pressed = r3_pressed;
@@ -998,6 +1092,7 @@ static void hostfs_hello_response_sent_cb(tuh_xfer_t *xfer)
 #if INPUT_SOURCE == INPUT_SOURCE_PS2
 	ps2_start_analog_retry();
 #endif
+	update_status_led();
 	printf("HostFS hello handshake complete (%lu bytes). remotejoy-minus.prx should now be connected.\n",
 		(unsigned long) xfer->actual_len);
 	printf("Ready to send RemoteJoyMinus JoyEvent packets to endpoint 0x%02X.\n", g_eps.ep_bulk_out_async);
@@ -1155,6 +1250,7 @@ int main(void)
 {
 	stdio_init_all();
 	board_init();
+	init_status_led();
 	init_controller_input();
 	tusb_init();
 	clear_endpoints();

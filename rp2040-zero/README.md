@@ -82,6 +82,26 @@ Default PS2 bitbang pins:
 	GND     common ground
 	3V3     controller VCC for logic-only testing
 
+Status RGB LED:
+
+	GPIO27  Red
+	GPIO28  Green
+	GPIO29  Blue
+
+The default firmware assumes an active-high/common-cathode RGB LED. For a
+common-anode LED, set `STATUS_LED_ACTIVE_LOW` to `1` in `standalone_usbhost.c`.
+
+LED colors:
+
+	Red     PSP connection waiting / not connected
+	Blue    PSP connected, right stick mapping off
+	Green   PSP connected, mode 1: right stick PSP d-pad
+	Magenta PSP connected, mode 2: right stick PSP face buttons,
+	        PS2 face buttons PSP d-pad
+
+GPIO27 is also used by the optional GPIO/ADC test wiring as ADC1. If you use
+`INPUT_SOURCE_GPIO`, move either the status LED pin or the analog Y pin.
+
 The firmware sends the standard poll command and tries to place the controller
 in analog mode at boot. If a controller stays in digital mode, buttons still
 work but analog stick reports stay centered.
