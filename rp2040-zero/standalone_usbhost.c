@@ -148,6 +148,7 @@ static uint32_t g_last_poll_ms;
 static uint32_t g_last_heartbeat_ms;
 static int g_status_led_initialized;
 static int g_status_led_last_color = -1;
+static int g_popn_music_controller_mode;
 enum RightStickMode
 {
 	RIGHT_STICK_MODE_OFF = 0,
@@ -174,7 +175,8 @@ enum StatusLedColor
 	STATUS_LED_RED = 0,
 	STATUS_LED_GREEN,
 	STATUS_LED_BLUE,
-	STATUS_LED_MAGENTA
+	STATUS_LED_MAGENTA,
+	STATUS_LED_WHITE
 };
 
 static void status_led_put_pin(uint8_t pin, int on)
@@ -205,6 +207,11 @@ static void status_led_set_color(int color)
 			red = 1;
 			blue = 1;
 			break;
+		case STATUS_LED_WHITE:
+			red = 1;
+			green = 1;
+			blue = 1;
+			break;
 		case STATUS_LED_RED:
 		default:
 			red = 1;
@@ -222,6 +229,12 @@ static void update_status_led(void)
 	if(!g_handshake_complete)
 	{
 		status_led_set_color(STATUS_LED_RED);
+		return;
+	}
+
+	if(g_popn_music_controller_mode)
+	{
+		status_led_set_color(STATUS_LED_WHITE);
 		return;
 	}
 
@@ -285,6 +298,7 @@ static void clear_endpoints(void)
 	g_last_poll_ms = 0;
 	g_last_heartbeat_ms = 0;
 	g_last_ps2_r3_pressed = 0;
+	g_popn_music_controller_mode = 0;
 	g_event_head = 0;
 	g_event_tail = 0;
 	update_status_led();
@@ -605,6 +619,52 @@ static void ps2_start_analog_retry(void)
 	g_ps2_analog_retry_last_ms = now - PS2_ANALOG_RETRY_INTERVAL_MS;
 }
 
+static int ps2_is_popn_music_controller(uint32_t ps2)
+{
+	return (ps2 & (PS2_BTN_LEFT | PS2_BTN_RIGHT | PS2_BTN_DOWN)) ==
+		(PS2_BTN_LEFT | PS2_BTN_RIGHT | PS2_BTN_DOWN);
+}
+
+static uint32_t ps2_popn_music_buttons_to_psp(uint32_t ps2)
+{
+	uint32_t psp = 0;
+
+	/* Matches psp-1000-control.ino remapPopnMusicButtons(). */
+	if(ps2 & PS2_BTN_UP)       psp |= PSP_CTRL_RIGHT;
+	if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_LEFT;
+	if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_UP;
+	if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_DOWN;
+	if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_TRIANGLE;
+	if(ps2 & PS2_BTN_R1)       psp |= PSP_CTRL_LTRIGGER;
+	if(ps2 & PS2_BTN_L1)       psp |= PSP_CTRL_CIRCLE;
+	if(ps2 & PS2_BTN_R2)       psp |= PSP_CTRL_RTRIGGER;
+	if(ps2 & PS2_BTN_L2)       psp |= PSP_CTRL_CROSS;
+	if(ps2 & PS2_BTN_START)    psp |= PSP_CTRL_START;
+	if(ps2 & PS2_BTN_SELECT)   psp |= PSP_CTRL_SELECT;
+
+	return psp;
+}
+
+static void update_popn_music_controller_mode(uint32_t ps2_buttons)
+{
+	int detected = ps2_is_popn_music_controller(ps2_buttons);
+
+	if(detected && !g_popn_music_controller_mode)
+	{
+		g_popn_music_controller_mode = 1;
+		g_right_stick_mode = RIGHT_STICK_MODE_OFF;
+		printf("Pop'n Music controller mode enabled\n");
+		update_status_led();
+	}
+	else if(!detected && g_popn_music_controller_mode)
+	{
+		g_popn_music_controller_mode = 0;
+		g_right_stick_mode = RIGHT_STICK_MODE_OFF;
+		printf("Pop'n Music controller mode disabled\n");
+		update_status_led();
+	}
+}
+
 static uint32_t ps2_buttons_to_psp(uint32_t ps2)
 {
 	uint32_t psp = 0;
@@ -729,11 +789,20 @@ static int read_ps2_controller_state(struct ControllerState *state)
 
 	if(!ps2_poll_raw(rx))
 	{
+		update_popn_music_controller_mode(0);
 		return 0;
 	}
 
 	ps2_buttons = (~(((uint32_t) rx[PS2_RESP_BUTTON_HI] << 8) |
 		rx[PS2_RESP_BUTTON_LO])) & 0xFFFFUL;
+
+	update_popn_music_controller_mode(ps2_buttons);
+	if(g_popn_music_controller_mode)
+	{
+		state->buttons = ps2_popn_music_buttons_to_psp(ps2_buttons);
+		return 1;
+	}
+
 	update_right_stick_mode_toggle(ps2_buttons);
 	state->buttons = ps2_buttons_to_psp(ps2_buttons);
 

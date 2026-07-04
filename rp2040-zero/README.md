@@ -98,6 +98,7 @@ LED colors:
 	Green   PSP connected, mode 1: right stick PSP d-pad
 	Magenta PSP connected, mode 2: right stick PSP face buttons,
 	        PS2 face buttons PSP d-pad
+	White   PSP connected, Pop'n Music Controller Mode
 
 GPIO27 is also used by the optional GPIO/ADC test wiring as ADC1. If you use
 `INPUT_SOURCE_GPIO`, move either the status LED pin or the analog Y pin.
@@ -130,6 +131,41 @@ Default PS2 to PSP mapping:
 	PS2 right stick	mode off by default, switch by start+R3
 	  mode 1: right stick PSP d-pad
 	  mode 2: right stick PSP face buttons, PS2 face buttons PSP d-pad
+
+Pop'n Music Controller Mode
+---------------------------
+
+If the bitbang PS2 input reports left, right, and down at the same time, the
+firmware treats it as a Pop'n Music controller and switches automatically to
+Pop'n Music Controller Mode. The status LED turns white while this mode is
+active. When that left+right+down signature disappears, the firmware leaves
+Pop'n Music Controller Mode and returns to the default right stick mapping mode
+off state.
+
+Pop'n Music Controller Mode uses this PSP button mapping:
+
+	PS2 up       	PSP right
+	PS2 circle   	PSP left
+	PS2 cross    	PSP up
+	PS2 square   	PSP down
+	PS2 triangle 	PSP triangle
+	PS2 R1       	PSP L trigger
+	PS2 L1       	PSP circle
+	PS2 R2       	PSP R trigger
+	PS2 L2       	PSP cross
+	PS2 start    	PSP start
+	PS2 select   	PSP select
+
+The detection keys themselves, PS2 left/right/down, are not passed through in
+this mode. START+RIGHT HOME, START+R3 right stick mode switching, volume
+combos, and right stick remapping are disabled while Pop'n Music Controller
+Mode is active.  
+
+To align with the remapping, we recommend configuring the key settings for *PSP Pop'n Music* as shown in the image below.  
+
+<img src="./assets/popn-keyconfig-9.png" />
+<img src="./assets/popn-keyconfig-7.png" />
+<img src="./assets/popn-keyconfig-5.png" />
 
 GPIO/ADC Test Wiring
 --------------------
