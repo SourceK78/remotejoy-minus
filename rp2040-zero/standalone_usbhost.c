@@ -628,6 +628,7 @@ static int ps2_is_popn_music_controller(uint32_t ps2)
 static uint32_t ps2_popn_music_buttons_to_psp(uint32_t ps2)
 {
 	uint32_t psp = 0;
+	int select_l1_combo = (ps2 & PS2_BTN_SELECT) && (ps2 & PS2_BTN_L1);
 
 	/* Matches psp-1000-control.ino remapPopnMusicButtons(). */
 	if(ps2 & PS2_BTN_UP)       psp |= PSP_CTRL_RIGHT;
@@ -636,11 +637,12 @@ static uint32_t ps2_popn_music_buttons_to_psp(uint32_t ps2)
 	if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_DOWN;
 	if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_TRIANGLE;
 	if(ps2 & PS2_BTN_R1)       psp |= PSP_CTRL_LTRIGGER;
-	if(ps2 & PS2_BTN_L1)       psp |= PSP_CTRL_CIRCLE;
+	if(select_l1_combo)        psp |= PSP_CTRL_SQUARE;
+	if(!select_l1_combo && (ps2 & PS2_BTN_L1)) psp |= PSP_CTRL_CIRCLE;
 	if(ps2 & PS2_BTN_R2)       psp |= PSP_CTRL_RTRIGGER;
 	if(ps2 & PS2_BTN_L2)       psp |= PSP_CTRL_CROSS;
 	if(ps2 & PS2_BTN_START)    psp |= PSP_CTRL_START;
-	if(ps2 & PS2_BTN_SELECT)   psp |= PSP_CTRL_SELECT;
+	if(!select_l1_combo && (ps2 & PS2_BTN_SELECT)) psp |= PSP_CTRL_SELECT;
 
 	return psp;
 }

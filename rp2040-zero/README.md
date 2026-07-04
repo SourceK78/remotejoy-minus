@@ -135,26 +135,12 @@ Default PS2 to PSP mapping:
 Pop'n Music Controller Mode
 ---------------------------
 
-If the bitbang PS2 input reports left, right, and down at the same time, the
-firmware treats it as a Pop'n Music controller and switches automatically to
-Pop'n Music Controller Mode. The status LED turns white while this mode is
-active. When that left+right+down signature disappears, the firmware leaves
-Pop'n Music Controller Mode and returns to the default right stick mapping mode
-off state.
+When the dedicated Pop'n Music controller (RU014) is connected, it automatically switches to Pop'n Music controller mode, and the LED lights up white.  
+In this mode, the buttons are internally remapped as shown in the image below to control the PSP.  
+While the Select button is held down, the Circle button switches to the Square button.  
+This is primarily used during gameplay in "Party Mode".   
 
-Pop'n Music Controller Mode uses this PSP button mapping:
-
-	PS2 up       	PSP right
-	PS2 circle   	PSP left
-	PS2 cross    	PSP up
-	PS2 square   	PSP down
-	PS2 triangle 	PSP triangle
-	PS2 R1       	PSP L trigger
-	PS2 L1       	PSP circle
-	PS2 R2       	PSP R trigger
-	PS2 L2       	PSP cross
-	PS2 start    	PSP start
-	PS2 select   	PSP select
+<img src="./assets/popcon_remap.JPG" />
 
 The detection keys themselves, PS2 left/right/down, are not passed through in
 this mode. START+RIGHT HOME, START+R3 right stick mode switching, volume
