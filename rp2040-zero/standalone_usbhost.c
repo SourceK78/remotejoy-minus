@@ -58,6 +58,8 @@
 #define PS2_RESP_LEFT_Y 8
 #define PS2_STICK_LOW 80
 #define PS2_STICK_HIGH 176
+#define PS2_FACE_SWAP_STICK_LOW 104
+#define PS2_FACE_SWAP_STICK_HIGH 152
 
 #define STATUS_LED_PIN_R 27
 #define STATUS_LED_PIN_G 28
@@ -732,20 +734,20 @@ static uint32_t ps2_right_stick_to_face(uint8_t rx, uint8_t ry)
 {
 	uint32_t buttons = 0;
 
-	if(rx < PS2_STICK_LOW)
+	if(rx < PS2_FACE_SWAP_STICK_LOW)
 	{
 		buttons |= PSP_CTRL_SQUARE;
 	}
-	else if(rx > PS2_STICK_HIGH)
+	else if(rx > PS2_FACE_SWAP_STICK_HIGH)
 	{
 		buttons |= PSP_CTRL_CIRCLE;
 	}
 
-	if(ry < PS2_STICK_LOW)
+	if(ry < PS2_FACE_SWAP_STICK_LOW)
 	{
 		buttons |= PSP_CTRL_TRIANGLE;
 	}
-	else if(ry > PS2_STICK_HIGH)
+	else if(ry > PS2_FACE_SWAP_STICK_HIGH)
 	{
 		buttons |= PSP_CTRL_CROSS;
 	}
