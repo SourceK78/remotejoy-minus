@@ -98,6 +98,7 @@ LED colors:
 	Green   PSP connected, mode 1: right stick PSP d-pad
 	Magenta PSP connected, mode 2: right stick PSP face buttons,
 	        PS2 face buttons PSP d-pad
+	Cyan    PSP connected, mode 3: Star Soldier D-pad rotate
 	White   PSP connected, Pop'n Music Controller Mode
 
 GPIO27 is also used by the optional GPIO/ADC test wiring as ADC1. If you use
@@ -127,10 +128,25 @@ Default PS2 to PSP mapping:
 	PS2 start+R2  	PSP volume up
 	PS2 start+left 	PSP display(Brightness only)
 	PS2 start+right PSP home(Alternative)
-	PS2 start+R3  	cycle right stick mapping mode
+	PS2 start+R3  	cycle controller mapping mode
 	PS2 right stick	mode off by default, switch by start+R3
 	  mode 1: right stick PSP d-pad
 	  mode 2: right stick PSP face buttons, PS2 face buttons PSP d-pad
+	  mode 3: Star Soldier D-pad rotate
+
+Star Soldier Mode
+-----------------
+
+Mode 3 is intended for PSP Star Soldier's vertical PSP play style. Only D-pad
+directions are remapped:
+
+	PS2 up   	PSP right
+	PS2 down 	PSP left
+	PS2 left 	PSP up
+	PS2 right	PSP down
+
+Other buttons keep the default mapping and can be configured in Star Soldier's
+own key configuration.
 
 Pop'n Music Controller Mode
 ---------------------------

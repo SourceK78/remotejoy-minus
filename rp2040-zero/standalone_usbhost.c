@@ -156,6 +156,7 @@ enum RightStickMode
 	RIGHT_STICK_MODE_OFF = 0,
 	RIGHT_STICK_MODE_DPAD,
 	RIGHT_STICK_MODE_FACE_SWAP,
+	RIGHT_STICK_MODE_STAR_SOLDIER,
 	RIGHT_STICK_MODE_COUNT
 };
 
@@ -178,6 +179,7 @@ enum StatusLedColor
 	STATUS_LED_GREEN,
 	STATUS_LED_BLUE,
 	STATUS_LED_MAGENTA,
+	STATUS_LED_CYAN,
 	STATUS_LED_WHITE
 };
 
@@ -207,6 +209,10 @@ static void status_led_set_color(int color)
 			break;
 		case STATUS_LED_MAGENTA:
 			red = 1;
+			blue = 1;
+			break;
+		case STATUS_LED_CYAN:
+			green = 1;
 			blue = 1;
 			break;
 		case STATUS_LED_WHITE:
@@ -247,6 +253,9 @@ static void update_status_led(void)
 			break;
 		case RIGHT_STICK_MODE_FACE_SWAP:
 			status_led_set_color(STATUS_LED_MAGENTA);
+			break;
+		case RIGHT_STICK_MODE_STAR_SOLDIER:
+			status_led_set_color(STATUS_LED_CYAN);
 			break;
 		case RIGHT_STICK_MODE_OFF:
 		default:
@@ -675,17 +684,27 @@ static uint32_t ps2_buttons_to_psp(uint32_t ps2)
 
 	if(ps2 & PS2_BTN_SELECT)   psp |= PSP_CTRL_SELECT;
 	if(ps2 & PS2_BTN_START)    psp |= PSP_CTRL_START;
-	if(ps2 & PS2_BTN_UP)       psp |= PSP_CTRL_UP;
-	if((ps2 & PS2_BTN_RIGHT) && !(ps2 & PS2_BTN_START)) psp |= PSP_CTRL_RIGHT;
-	if(ps2 & PS2_BTN_DOWN)     psp |= PSP_CTRL_DOWN;
-	if(ps2 & PS2_BTN_LEFT)     psp |= PSP_CTRL_LEFT;
+	if(g_right_stick_mode == RIGHT_STICK_MODE_STAR_SOLDIER)
+	{
+		if(ps2 & PS2_BTN_UP)    psp |= PSP_CTRL_RIGHT;
+		if(ps2 & PS2_BTN_DOWN)  psp |= PSP_CTRL_LEFT;
+		if(ps2 & PS2_BTN_LEFT)  psp |= PSP_CTRL_UP;
+		if((ps2 & PS2_BTN_RIGHT) && !(ps2 & PS2_BTN_START)) psp |= PSP_CTRL_DOWN;
+	}
+	else
+	{
+		if(ps2 & PS2_BTN_UP)       psp |= PSP_CTRL_UP;
+		if((ps2 & PS2_BTN_RIGHT) && !(ps2 & PS2_BTN_START)) psp |= PSP_CTRL_RIGHT;
+		if(ps2 & PS2_BTN_DOWN)     psp |= PSP_CTRL_DOWN;
+		if(ps2 & PS2_BTN_LEFT)     psp |= PSP_CTRL_LEFT;
+	}
 	if(ps2 & PS2_BTN_L1)       psp |= PSP_CTRL_LTRIGGER;
 	if(ps2 & PS2_BTN_R1)       psp |= PSP_CTRL_RTRIGGER;
 	if(ps2 & PS2_BTN_L2)       psp |= PSP_CTRL_VOLDOWN;
 	if(ps2 & PS2_BTN_R2)       psp |= PSP_CTRL_VOLUP;
 	if(ps2 & PS2_BTN_L3)       psp |= PSP_CTRL_NOTE;
 	if((ps2 & PS2_BTN_START) && (ps2 & PS2_BTN_RIGHT)) psp |= PSP_CTRL_HOME;
-	/* R3 is HOME unless START is held; START+R3 toggles the right-stick D-pad layer. */
+	/* R3 is HOME unless START is held; START+R3 toggles the controller mapping mode. */
 	if((ps2 & PS2_BTN_R3) && !(ps2 & PS2_BTN_START)) psp |= PSP_CTRL_HOME;
 	if(g_right_stick_mode == RIGHT_STICK_MODE_FACE_SWAP)
 	{
@@ -763,6 +782,8 @@ static const char *right_stick_mode_name(int mode)
 			return "right stick to D-pad";
 		case RIGHT_STICK_MODE_FACE_SWAP:
 			return "right stick to face buttons, face buttons to D-pad";
+		case RIGHT_STICK_MODE_STAR_SOLDIER:
+			return "Star Soldier D-pad rotate";
 		default:
 			return "off";
 	}
