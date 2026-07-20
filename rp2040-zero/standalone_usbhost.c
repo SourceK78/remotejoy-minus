@@ -56,6 +56,7 @@
 #define PS2_RESP_RIGHT_Y 6
 #define PS2_RESP_LEFT_X 7
 #define PS2_RESP_LEFT_Y 8
+#define PS2_ANALOG_CENTER 128
 #define PS2_STICK_LOW 80
 #define PS2_STICK_HIGH 176
 #define PS2_FACE_SWAP_STICK_LOW 104
@@ -774,6 +775,14 @@ static uint32_t ps2_right_stick_to_face(uint8_t rx, uint8_t ry)
 	return buttons;
 }
 
+static void ps2_rotate_left_analog_for_star_soldier(uint8_t in_x, uint8_t in_y,
+	uint8_t *out_x, uint8_t *out_y)
+{
+	*out_x = (uint8_t) clamp_int(PS2_ANALOG_CENTER +
+		(PS2_ANALOG_CENTER - (int) in_y), 0, 255);
+	*out_y = in_x;
+}
+
 static const char *right_stick_mode_name(int mode)
 {
 	switch(mode)
@@ -844,8 +853,17 @@ static int read_ps2_controller_state(struct ControllerState *state)
 			state->buttons |= ps2_right_stick_to_face(
 				rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
 		}
-		state->x = rx[PS2_RESP_LEFT_X];
-		state->y = rx[PS2_RESP_LEFT_Y];
+		if(g_right_stick_mode == RIGHT_STICK_MODE_STAR_SOLDIER)
+		{
+			ps2_rotate_left_analog_for_star_soldier(
+				rx[PS2_RESP_LEFT_X], rx[PS2_RESP_LEFT_Y],
+				&state->x, &state->y);
+		}
+		else
+		{
+			state->x = rx[PS2_RESP_LEFT_X];
+			state->y = rx[PS2_RESP_LEFT_Y];
+		}
 	}
 
 	return 1;

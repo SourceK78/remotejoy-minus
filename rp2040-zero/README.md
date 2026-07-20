@@ -137,8 +137,8 @@ Default PS2 to PSP mapping:
 Star Soldier Mode
 -----------------
 
-Mode 3 is intended for PSP Star Soldier's vertical PSP play style. Only D-pad
-directions are remapped:
+Mode 3 is intended for PSP Star Soldier's vertical PSP play style.  
+D-pad directions and the left analog stick are rotated:
 
 	PS2 up   	PSP right
 	PS2 down 	PSP left
