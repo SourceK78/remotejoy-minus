@@ -17,6 +17,7 @@
 
 #define STATE_REPORT_MS 20
 #define STATE_HEARTBEAT_MS 0
+#define BUTTON_REASSERT_MS 80
 #define EVENT_QUEUE_SIZE 16
 #define ENABLE_INPUT_SCAN 1
 
@@ -48,6 +49,10 @@
 #define PS2_ANALOG_RETRY_WINDOW_MS 5000
 #define PS2_ANALOG_RETRY_INTERVAL_MS 500
 #define PS2_RESPONSE_SIZE 9
+#define PS2_MULTITAP_SLOT_COUNT 2
+#define PS2_MULTITAP_LONG_RESPONSE_SIZE 35
+#define PS2_MULTITAP_LONG_SLOT_SIZE 8
+#define PS2_MULTITAP_LONG_PROBE_INTERVAL_MS 500
 #define PS2_RESP_MODE 1
 #define PS2_RESP_ID 2
 #define PS2_RESP_BUTTON_LO 3
@@ -147,8 +152,15 @@ static int g_async_xfer_busy;
 static uint32_t g_last_buttons;
 static uint8_t g_last_x = 128;
 static uint8_t g_last_y = 128;
+static int g_p2_present;
+static int g_last_p2_present = -1;
+static struct ControllerState g_p2_state;
+static uint32_t g_last_p2_buttons;
+static uint8_t g_last_p2_x = 128;
+static uint8_t g_last_p2_y = 128;
 static uint32_t g_last_poll_ms;
 static uint32_t g_last_heartbeat_ms;
+static uint32_t g_last_button_reassert_ms;
 static int g_status_led_initialized;
 static int g_status_led_last_color = -1;
 static int g_popn_music_controller_mode;
@@ -165,6 +177,12 @@ static int g_right_stick_mode = RIGHT_STICK_MODE_OFF;
 static int g_last_ps2_r3_pressed;
 static uint32_t g_ps2_analog_retry_start_ms;
 static uint32_t g_ps2_analog_retry_last_ms;
+static int g_ps2_slot_present[PS2_MULTITAP_SLOT_COUNT];
+static uint32_t g_ps2_slot_last_buttons[PS2_MULTITAP_SLOT_COUNT];
+static uint8_t g_ps2_slot_last_x[PS2_MULTITAP_SLOT_COUNT];
+static uint8_t g_ps2_slot_last_y[PS2_MULTITAP_SLOT_COUNT];
+static int g_ps2_multitap_long_active;
+static uint32_t g_ps2_multitap_long_probe_last_ms;
 static struct JoyEventQueueItem g_event_queue[EVENT_QUEUE_SIZE];
 static uint8_t g_event_head;
 static uint8_t g_event_tail;
@@ -173,6 +191,7 @@ static void hostfs_magic_sent_cb(tuh_xfer_t *xfer);
 static void hostfs_hello_read_cb(tuh_xfer_t *xfer);
 static void hostfs_hello_response_sent_cb(tuh_xfer_t *xfer);
 static void joy_event_sent_cb(tuh_xfer_t *xfer);
+static void clear_controller_state_value(struct ControllerState *state);
 
 enum StatusLedColor
 {
@@ -307,10 +326,23 @@ static void clear_endpoints(void)
 	g_last_buttons = 0;
 	g_last_x = 128;
 	g_last_y = 128;
+	g_p2_present = 0;
+	g_last_p2_present = -1;
+	clear_controller_state_value(&g_p2_state);
+	g_last_p2_buttons = 0;
+	g_last_p2_x = 128;
+	g_last_p2_y = 128;
 	g_last_poll_ms = 0;
 	g_last_heartbeat_ms = 0;
+	g_last_button_reassert_ms = 0;
 	g_last_ps2_r3_pressed = 0;
 	g_popn_music_controller_mode = 0;
+	memset(g_ps2_slot_present, 0, sizeof(g_ps2_slot_present));
+	memset(g_ps2_slot_last_buttons, 0, sizeof(g_ps2_slot_last_buttons));
+	memset(g_ps2_slot_last_x, 128, sizeof(g_ps2_slot_last_x));
+	memset(g_ps2_slot_last_y, 128, sizeof(g_ps2_slot_last_y));
+	g_ps2_multitap_long_active = 0;
+	g_ps2_multitap_long_probe_last_ms = 0;
 	g_event_head = 0;
 	g_event_tail = 0;
 	update_status_led();
@@ -321,9 +353,22 @@ static void reset_input_diff_state(void)
 	g_last_buttons = 0;
 	g_last_x = 128;
 	g_last_y = 128;
+	g_p2_present = 0;
+	g_last_p2_present = -1;
+	clear_controller_state_value(&g_p2_state);
+	g_last_p2_buttons = 0;
+	g_last_p2_x = 128;
+	g_last_p2_y = 128;
 	g_last_poll_ms = 0;
 	g_last_heartbeat_ms = 0;
+	g_last_button_reassert_ms = 0;
 	g_last_ps2_r3_pressed = 0;
+	memset(g_ps2_slot_present, 0, sizeof(g_ps2_slot_present));
+	memset(g_ps2_slot_last_buttons, 0, sizeof(g_ps2_slot_last_buttons));
+	memset(g_ps2_slot_last_x, 128, sizeof(g_ps2_slot_last_x));
+	memset(g_ps2_slot_last_y, 128, sizeof(g_ps2_slot_last_y));
+	g_ps2_multitap_long_active = 0;
+	g_ps2_multitap_long_probe_last_ms = 0;
 }
 
 static int is_bulk_endpoint(const uint8_t *desc)
@@ -553,10 +598,10 @@ static void ps2_transaction(const uint8_t *tx, uint8_t *rx, size_t len)
 	busy_wait_us_32(PS2_COMMAND_DELAY_US);
 }
 
-static int ps2_poll_raw(uint8_t *rx)
+static int ps2_poll_raw_addr(uint8_t addr, uint8_t *rx)
 {
-	static const uint8_t poll_cmd[PS2_RESPONSE_SIZE] = {
-		0x01, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	uint8_t poll_cmd[PS2_RESPONSE_SIZE] = {
+		addr, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	};
 
 	memset(rx, 0, PS2_RESPONSE_SIZE);
@@ -571,15 +616,29 @@ static int ps2_poll_raw(uint8_t *rx)
 	return 1;
 }
 
-static void ps2_send_config_command(const uint8_t *cmd, size_t len)
+static int ps2_poll_raw(uint8_t *rx)
 {
-	uint8_t rx[PS2_RESPONSE_SIZE];
-
-	memset(rx, 0, sizeof(rx));
-	ps2_transaction(cmd, rx, len);
+	return ps2_poll_raw_addr(0x01, rx);
 }
 
-static void ps2_enable_analog_mode(void)
+static void ps2_send_config_command_addr(uint8_t addr, const uint8_t *cmd, size_t len)
+{
+	uint8_t rx[PS2_RESPONSE_SIZE];
+	uint8_t tx[PS2_RESPONSE_SIZE];
+
+	memset(rx, 0, sizeof(rx));
+	memset(tx, 0, sizeof(tx));
+	memcpy(tx, cmd, len > sizeof(tx) ? sizeof(tx) : len);
+	tx[0] = addr;
+	ps2_transaction(tx, rx, len);
+}
+
+static void ps2_send_config_command(const uint8_t *cmd, size_t len)
+{
+	ps2_send_config_command_addr(0x01, cmd, len);
+}
+
+static void ps2_enable_analog_mode_addr(uint8_t addr)
 {
 	static const uint8_t enter_config[5] = {
 		0x01, 0x43, 0x00, 0x01, 0x00
@@ -591,9 +650,14 @@ static void ps2_enable_analog_mode(void)
 		0x01, 0x43, 0x00, 0x00, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A
 	};
 
-	ps2_send_config_command(enter_config, sizeof(enter_config));
-	ps2_send_config_command(set_analog, sizeof(set_analog));
-	ps2_send_config_command(exit_config, sizeof(exit_config));
+	ps2_send_config_command_addr(addr, enter_config, sizeof(enter_config));
+	ps2_send_config_command_addr(addr, set_analog, sizeof(set_analog));
+	ps2_send_config_command_addr(addr, exit_config, sizeof(exit_config));
+}
+
+static void ps2_enable_analog_mode(void)
+{
+	ps2_enable_analog_mode_addr(0x01);
 }
 
 static int ps2_is_analog_mode(uint8_t mode)
@@ -621,6 +685,7 @@ static void ps2_retry_analog_mode(void)
 
 	g_ps2_analog_retry_last_ms = now;
 	ps2_enable_analog_mode();
+	ps2_enable_analog_mode_addr(0x02);
 }
 
 static void ps2_start_analog_retry(void)
@@ -776,6 +841,215 @@ static uint32_t ps2_right_stick_to_face(uint8_t rx, uint8_t ry)
 }
 
 static void ps2_rotate_left_analog_for_star_soldier(uint8_t in_x, uint8_t in_y,
+	uint8_t *out_x, uint8_t *out_y);
+static void update_right_stick_mode_toggle(uint32_t ps2_buttons);
+
+static void clear_controller_state_value(struct ControllerState *state)
+{
+	state->buttons = 0;
+	state->x = 128;
+	state->y = 128;
+}
+
+static void ps2_apply_standard_mapping(const uint8_t *rx,
+	struct ControllerState *state, uint32_t ps2_buttons, int use_global_modes)
+{
+	state->buttons = ps2_buttons_to_psp(ps2_buttons);
+
+	if(!ps2_is_analog_mode(rx[PS2_RESP_MODE]))
+	{
+		return;
+	}
+
+	if(use_global_modes)
+	{
+		g_ps2_analog_retry_start_ms = 0;
+	}
+	if(use_global_modes && g_right_stick_mode == RIGHT_STICK_MODE_DPAD)
+	{
+		state->buttons |= ps2_right_stick_to_dpad(
+			rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
+	}
+	else if(use_global_modes && g_right_stick_mode == RIGHT_STICK_MODE_FACE_SWAP)
+	{
+		state->buttons |= ps2_right_stick_to_face(
+			rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
+	}
+	if(use_global_modes && g_right_stick_mode == RIGHT_STICK_MODE_STAR_SOLDIER)
+	{
+		ps2_rotate_left_analog_for_star_soldier(
+			rx[PS2_RESP_LEFT_X], rx[PS2_RESP_LEFT_Y],
+			&state->x, &state->y);
+	}
+	else
+	{
+		state->x = rx[PS2_RESP_LEFT_X];
+		state->y = rx[PS2_RESP_LEFT_Y];
+	}
+}
+
+static int ps2_decode_poll_response(const uint8_t *rx,
+	struct ControllerState *state, uint32_t *ps2_buttons, int use_global_modes)
+{
+	clear_controller_state_value(state);
+
+	if(rx[PS2_RESP_MODE] == 0x00 || rx[PS2_RESP_MODE] == 0xFF ||
+		rx[PS2_RESP_ID] != 0x5A)
+	{
+		*ps2_buttons = 0;
+		return 0;
+	}
+
+	*ps2_buttons = (~(((uint32_t) rx[PS2_RESP_BUTTON_HI] << 8) |
+		rx[PS2_RESP_BUTTON_LO])) & 0xFFFFUL;
+
+	if(use_global_modes)
+	{
+		update_popn_music_controller_mode(*ps2_buttons);
+		if(g_popn_music_controller_mode)
+		{
+			state->buttons = ps2_popn_music_buttons_to_psp(*ps2_buttons);
+			return 1;
+		}
+
+		update_right_stick_mode_toggle(*ps2_buttons);
+	}
+
+	ps2_apply_standard_mapping(rx, state, *ps2_buttons, use_global_modes);
+	return 1;
+}
+
+static int ps2_decode_multitap_long_slot(const uint8_t *slot,
+	struct ControllerState *state, uint32_t *ps2_buttons, int use_global_modes)
+{
+	uint8_t rx[PS2_RESPONSE_SIZE] = {
+		0xFF, slot[0], slot[1], slot[2], slot[3], slot[4], slot[5], slot[6], slot[7]
+	};
+
+	return ps2_decode_poll_response(rx, state, ps2_buttons, use_global_modes);
+}
+
+static int ps2_poll_multitap_long_slots(struct ControllerState *state1,
+	uint32_t *ps2_buttons1, uint8_t *mode1, struct ControllerState *state2,
+	uint32_t *ps2_buttons2, uint8_t *mode2)
+{
+	uint8_t request_tx[PS2_RESPONSE_SIZE] = {
+		0x01, 0x42, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	};
+	uint8_t request_rx[PS2_RESPONSE_SIZE];
+	uint8_t long_tx[PS2_MULTITAP_LONG_RESPONSE_SIZE];
+	uint8_t long_rx[PS2_MULTITAP_LONG_RESPONSE_SIZE];
+	const uint8_t *slot1;
+	const uint8_t *slot2;
+	int slot1_present;
+	int slot2_present;
+	uint32_t now = to_ms_since_boot(get_absolute_time());
+
+	*ps2_buttons1 = 0;
+	*ps2_buttons2 = 0;
+	*mode1 = 0;
+	*mode2 = 0;
+	clear_controller_state_value(state1);
+	clear_controller_state_value(state2);
+
+	if(!g_ps2_multitap_long_active &&
+		(uint32_t) (now - g_ps2_multitap_long_probe_last_ms) <
+			PS2_MULTITAP_LONG_PROBE_INTERVAL_MS)
+	{
+		return 0;
+	}
+	g_ps2_multitap_long_probe_last_ms = now;
+
+	memset(request_rx, 0, sizeof(request_rx));
+	ps2_transaction(request_tx, request_rx, sizeof(request_tx));
+
+	memset(long_tx, 0, sizeof(long_tx));
+	long_tx[0] = 0x01;
+	long_tx[1] = 0x42;
+	long_tx[2] = 0x00;
+	memset(long_rx, 0, sizeof(long_rx));
+	ps2_transaction(long_tx, long_rx, sizeof(long_rx));
+
+	if(long_rx[1] != 0x80 || long_rx[2] != 0x5A)
+	{
+		g_ps2_multitap_long_active = 0;
+		return 0;
+	}
+
+	if(!g_ps2_multitap_long_active)
+	{
+		printf("PS2 multitap long response detected\n");
+		g_ps2_multitap_long_active = 1;
+	}
+
+	slot1 = &long_rx[3];
+	slot2 = &long_rx[3 + PS2_MULTITAP_LONG_SLOT_SIZE];
+	slot1_present = ps2_decode_multitap_long_slot(slot1, state1, ps2_buttons1, 1);
+	slot2_present = ps2_decode_multitap_long_slot(slot2, state2, ps2_buttons2, 0);
+	*mode1 = slot1[0];
+	*mode2 = slot2[0];
+
+	return slot1_present || slot2_present;
+}
+
+static void ps2_log_slot_state(int slot, int present,
+	const struct ControllerState *state, uint32_t ps2_buttons, uint8_t mode)
+{
+	int index = slot - 1;
+
+	if(index < 0 || index >= PS2_MULTITAP_SLOT_COUNT)
+	{
+		return;
+	}
+
+	if(present != g_ps2_slot_present[index])
+	{
+		g_ps2_slot_present[index] = present;
+		if(present)
+		{
+			printf("PS2 multitap slot %d connected, mode 0x%02X\n", slot, mode);
+		}
+		else
+		{
+			printf("PS2 multitap slot %d disconnected\n", slot);
+		}
+	}
+
+	if(!present)
+	{
+		g_ps2_slot_last_buttons[index] = 0;
+		g_ps2_slot_last_x[index] = 128;
+		g_ps2_slot_last_y[index] = 128;
+		return;
+	}
+
+	if(ps2_buttons != g_ps2_slot_last_buttons[index] ||
+		abs_int((int) state->x - g_ps2_slot_last_x[index]) >= ANALOG_DEADBAND ||
+		abs_int((int) state->y - g_ps2_slot_last_y[index]) >= ANALOG_DEADBAND)
+	{
+		printf("PS2 multitap slot %d state: raw 0x%04lX psp 0x%06lX lx %u ly %u\n",
+			slot, (unsigned long) ps2_buttons, (unsigned long) state->buttons,
+			state->x, state->y);
+		g_ps2_slot_last_buttons[index] = ps2_buttons;
+		g_ps2_slot_last_x[index] = state->x;
+		g_ps2_slot_last_y[index] = state->y;
+	}
+}
+
+static void update_p2_state(int present, const struct ControllerState *state)
+{
+	g_p2_present = present;
+	if(present)
+	{
+		g_p2_state = *state;
+	}
+	else
+	{
+		clear_controller_state_value(&g_p2_state);
+	}
+}
+
+static void ps2_rotate_left_analog_for_star_soldier(uint8_t in_x, uint8_t in_y,
 	uint8_t *out_x, uint8_t *out_y)
 {
 	*out_x = (uint8_t) clamp_int(PS2_ANALOG_CENTER +
@@ -815,56 +1089,71 @@ static void update_right_stick_mode_toggle(uint32_t ps2_buttons)
 static int read_ps2_controller_state(struct ControllerState *state)
 {
 	uint8_t rx[PS2_RESPONSE_SIZE];
+	uint8_t rx2[PS2_RESPONSE_SIZE];
 	uint32_t ps2_buttons;
+	uint32_t ps2_buttons2;
+	struct ControllerState state2;
+	int slot2_present;
+	uint8_t slot2_mode;
+	uint8_t slot1_mode;
 
-	state->buttons = 0;
-	state->x = 128;
-	state->y = 128;
+	clear_controller_state_value(state);
 
 	if(!ps2_poll_raw(rx))
 	{
+		clear_controller_state_value(&state2);
+		slot1_mode = 0;
+		slot2_mode = 0;
+		if(ps2_poll_multitap_long_slots(state, &ps2_buttons, &slot1_mode,
+			&state2, &ps2_buttons2, &slot2_mode))
+		{
+			int slot1_present = ps2_buttons != 0 ||
+				state->buttons != 0 || slot1_mode != 0;
+			int slot2_present = ps2_buttons2 != 0 ||
+				state2.buttons != 0 || slot2_mode != 0;
+
+			ps2_log_slot_state(1, slot1_present, state, ps2_buttons, slot1_mode);
+			ps2_log_slot_state(2, slot2_present, &state2, ps2_buttons2, slot2_mode);
+			update_p2_state(slot2_present, &state2);
+			return slot1_present || slot2_present;
+		}
+
 		update_popn_music_controller_mode(0);
+		ps2_log_slot_state(1, 0, state, 0, 0);
+		ps2_log_slot_state(2, 0, &state2, 0, 0);
+		update_p2_state(0, &state2);
 		return 0;
 	}
 
-	ps2_buttons = (~(((uint32_t) rx[PS2_RESP_BUTTON_HI] << 8) |
-		rx[PS2_RESP_BUTTON_LO])) & 0xFFFFUL;
-
-	update_popn_music_controller_mode(ps2_buttons);
-	if(g_popn_music_controller_mode)
+	if(!ps2_decode_poll_response(rx, state, &ps2_buttons, 1))
 	{
-		state->buttons = ps2_popn_music_buttons_to_psp(ps2_buttons);
-		return 1;
+		ps2_log_slot_state(1, 0, state, 0, 0);
+		return 0;
 	}
+	ps2_log_slot_state(1, 1, state, ps2_buttons, rx[PS2_RESP_MODE]);
 
-	update_right_stick_mode_toggle(ps2_buttons);
-	state->buttons = ps2_buttons_to_psp(ps2_buttons);
-
-	if(ps2_is_analog_mode(rx[PS2_RESP_MODE]))
+	clear_controller_state_value(&state2);
+	slot2_mode = 0;
+	slot2_present = ps2_poll_raw_addr(0x02, rx2) &&
+		ps2_decode_poll_response(rx2, &state2, &ps2_buttons2, 0);
+	if(slot2_present)
 	{
-		g_ps2_analog_retry_start_ms = 0;
-		if(g_right_stick_mode == RIGHT_STICK_MODE_DPAD)
-		{
-			state->buttons |= ps2_right_stick_to_dpad(
-				rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
-		}
-		else if(g_right_stick_mode == RIGHT_STICK_MODE_FACE_SWAP)
-		{
-			state->buttons |= ps2_right_stick_to_face(
-				rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
-		}
-		if(g_right_stick_mode == RIGHT_STICK_MODE_STAR_SOLDIER)
-		{
-			ps2_rotate_left_analog_for_star_soldier(
-				rx[PS2_RESP_LEFT_X], rx[PS2_RESP_LEFT_Y],
-				&state->x, &state->y);
-		}
-		else
-		{
-			state->x = rx[PS2_RESP_LEFT_X];
-			state->y = rx[PS2_RESP_LEFT_Y];
-		}
+		slot2_mode = rx2[PS2_RESP_MODE];
 	}
+	else
+	{
+		struct ControllerState long_state1;
+		uint32_t long_buttons1;
+		uint8_t long_mode1;
+
+		slot2_present = ps2_poll_multitap_long_slots(&long_state1,
+			&long_buttons1, &long_mode1, &state2, &ps2_buttons2, &slot2_mode) &&
+			(ps2_buttons2 != 0 || state2.buttons != 0 || slot2_mode != 0);
+	}
+	ps2_log_slot_state(2, slot2_present, &state2,
+		slot2_present ? ps2_buttons2 : 0,
+		slot2_present ? slot2_mode : 0);
+	update_p2_state(slot2_present, &state2);
 
 	return 1;
 }
@@ -895,6 +1184,7 @@ static void init_ps2_pins(void)
 
 	sleep_ms(300);
 	ps2_enable_analog_mode();
+	ps2_enable_analog_mode_addr(0x02);
 	ps2_start_analog_retry();
 	printf("PS2 bitbang input initialized: ATT GP%d CMD GP%d DAT GP%d CLK GP%d\n",
 		PS2_PIN_ATT, PS2_PIN_CMD, PS2_PIN_DAT, PS2_PIN_CLK);
@@ -937,10 +1227,15 @@ static int event_queue_is_full(void)
 	return ((g_event_tail + 1) % EVENT_QUEUE_SIZE) == g_event_head;
 }
 
+static int is_button_event_type(int32_t type)
+{
+	return type == RJM_TYPE_BUTTON_DOWN || type == RJM_TYPE_BUTTON_UP ||
+		type == RJM_TYPE_P2_BUTTON_DOWN || type == RJM_TYPE_P2_BUTTON_UP;
+}
+
 static int enqueue_joy_event(int32_t type, uint32_t value)
 {
-	if(value == 0 &&
-		(type == RJM_TYPE_BUTTON_DOWN || type == RJM_TYPE_BUTTON_UP))
+	if(value == 0 && is_button_event_type(type))
 	{
 		return 1;
 	}
@@ -993,7 +1288,9 @@ static void poll_input_state(void)
 {
 	uint32_t now;
 	uint32_t changed;
+	uint32_t p2_changed;
 	struct ControllerState state;
+	struct ControllerState p2_state;
 
 	if(!g_input_started)
 	{
@@ -1012,6 +1309,8 @@ static void poll_input_state(void)
 		return;
 	}
 
+	p2_state = g_p2_state;
+
 	changed = state.buttons ^ g_last_buttons;
 	if(changed != 0)
 	{
@@ -1029,6 +1328,44 @@ static void poll_input_state(void)
 	{
 		enqueue_joy_event(RJM_TYPE_ANALOG_Y, state.y);
 		g_last_y = state.y;
+	}
+
+	if(g_p2_present != g_last_p2_present)
+	{
+		enqueue_joy_event(RJM_TYPE_P2_STATUS, g_p2_present ? 1 : 0);
+		g_last_p2_present = g_p2_present;
+	}
+
+	p2_changed = p2_state.buttons ^ g_last_p2_buttons;
+	if(p2_changed != 0)
+	{
+		enqueue_joy_event(RJM_TYPE_P2_BUTTON_DOWN, p2_changed & p2_state.buttons);
+		enqueue_joy_event(RJM_TYPE_P2_BUTTON_UP, p2_changed & g_last_p2_buttons);
+		g_last_p2_buttons = p2_state.buttons;
+	}
+
+	if(abs_int((int) p2_state.x - g_last_p2_x) >= ANALOG_DEADBAND)
+	{
+		enqueue_joy_event(RJM_TYPE_P2_ANALOG_X, p2_state.x);
+		g_last_p2_x = p2_state.x;
+	}
+	if(abs_int((int) p2_state.y - g_last_p2_y) >= ANALOG_DEADBAND)
+	{
+		enqueue_joy_event(RJM_TYPE_P2_ANALOG_Y, p2_state.y);
+		g_last_p2_y = p2_state.y;
+	}
+
+	if((uint32_t) (now - g_last_button_reassert_ms) >= BUTTON_REASSERT_MS)
+	{
+		g_last_button_reassert_ms = now;
+		if(state.buttons != 0)
+		{
+			enqueue_joy_event(RJM_TYPE_BUTTON_DOWN, state.buttons);
+		}
+		if(g_p2_present && p2_state.buttons != 0)
+		{
+			enqueue_joy_event(RJM_TYPE_P2_BUTTON_DOWN, p2_state.buttons);
+		}
 	}
 
 #if STATE_HEARTBEAT_MS > 0
@@ -1103,6 +1440,9 @@ static void start_input_scan(void)
 		g_last_buttons = state.buttons;
 		g_last_x = state.x;
 		g_last_y = state.y;
+		g_last_p2_buttons = g_p2_state.buttons;
+		g_last_p2_x = g_p2_state.x;
+		g_last_p2_y = g_p2_state.y;
 	}
 #if INPUT_SOURCE == INPUT_SOURCE_PS2
 	printf("Starting RP2040 input scanner. PS2 bitbang input now drives RemoteJoyMinus.\n");
@@ -1367,7 +1707,7 @@ int main(void)
 	tusb_init();
 	clear_endpoints();
 
-	printf("\nRemoteJoyMinus standalone USB host probe\n");
+	printf("\nRemoteJoyMinus standalone USB host\n");
 	printf("HOSTFS magic 0x%08lX ASYNC magic 0x%08lX channel %d\n",
 		(unsigned long) RJM_HOSTFS_MAGIC,
 		(unsigned long) RJM_ASYNC_MAGIC,

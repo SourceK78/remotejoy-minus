@@ -18,6 +18,11 @@
 #define RJM_TYPE_BUTTON_UP   2
 #define RJM_TYPE_ANALOG_Y    3
 #define RJM_TYPE_ANALOG_X    4
+#define RJM_TYPE_P2_BUTTON_DOWN 6
+#define RJM_TYPE_P2_BUTTON_UP   7
+#define RJM_TYPE_P2_ANALOG_Y    8
+#define RJM_TYPE_P2_ANALOG_X    9
+#define RJM_TYPE_P2_STATUS      10
 
 #define PSP_CTRL_SELECT     0x000001UL
 #define PSP_CTRL_START      0x000008UL

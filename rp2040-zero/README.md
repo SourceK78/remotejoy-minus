@@ -1,5 +1,5 @@
-RemoteJoyMinus Standalone USB Host Probe
-========================================
+RemoteJoyMinus Standalone USB Host
+==================================
 
 This standalone USB host build enumerates the PSP running remotejoy-minus.prx,
 opens the RemoteJoyMinus bulk endpoints, runs the HostFS-compatible hello
@@ -107,6 +107,25 @@ GPIO27 is also used by the optional GPIO/ADC test wiring as ADC1. If you use
 The firmware sends the standard poll command and tries to place the controller
 in analog mode at boot. If a controller stays in digital mode, buttons still
 work but analog stick reports stay centered.
+
+PS2 Multitap
+------------
+
+PS1 multitap support is enabled for the first two controller slots. This is
+intended for SCPH-1070-style PS1 multitaps.
+
+Slot 1 is used as the normal RemoteJoyMinus input source. Slot 2 is sent as a
+separate POPS player-2 event stream:
+
+	PS2 multitap slot 2 connected, mode 0x73
+	PS2 multitap slot 2 state: raw 0x0000 psp 0x000000 lx 128 ly 128
+
+When Slot 2 is connected, the firmware also sends a player-2 status event so
+the PSP plugin can enable POPS 2P support. When Slot 2 is disconnected, the
+plugin returns to normal POPS behavior.
+
+The PS2 multitap SCPH-10090 did not respond to this controller-port-only
+bitbang wiring. Use a PS1 multitap such as SCPH-1070 for POPS 2P support.
 
 Default PS2 to PSP mapping:
 

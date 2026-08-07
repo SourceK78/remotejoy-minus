@@ -18,6 +18,11 @@
 #define TYPE_ANALOG_Y    3
 #define TYPE_ANALOG_X    4
 #define TYPE_SCREEN_CMD  5
+#define TYPE_P2_BUTTON_DOWN 6
+#define TYPE_P2_BUTTON_UP   7
+#define TYPE_P2_ANALOG_Y    8
+#define TYPE_P2_ANALOG_X    9
+#define TYPE_P2_STATUS      10
 
 /* Screen commands */
 #define SCREEN_CMD_ACTIVE 1
