@@ -1,121 +1,127 @@
-remotejoy-minus standalone
-==========================
+# remotejoy-minus standalone
 
-This is the RP2040-zero standalone version of remotejoy, with the video output function removed and enabling control via PS1/PS2 controllers.  
-By combining it with the external output function of the PSP-2000/3000, remote play using a TV screen is possible without a PC.  
-Does not require psplink.prx or usbhostfs.prx on the PSP side.  
+`remotejoy-minus` is an input-only RemoteJoy/USBHostFS implementation for PSP.
+It removes PC video streaming and lets a microcontroller act as the USB host,
+so a PSP-2000/3000 can be played on an external display without PSPLINK or a
+PC-side USBHostFS process.
 
-Build PSP Plugin
-----------------
+The repository contains the PSP plugin and two input firmware options:
 
-Set PSPDEV/PATH if needed, then run:
+| Firmware | Input | Configuration | Players |
+|---|---|---|---|
+| [Pico 2 W](./pico2w/README.md) | Bluetooth via Bluepad32 | Wi-Fi Web portal | 1P and optional POPS 2P |
+| [RP2040-Zero](./rp2040-zero/README.md) | Wired PS1/PS2 controllers | Compile-time | 1P and PS1 multitap POPS 2P |
 
-	make
+The Pico 2 W firmware supports persistent controller pairing, shared mapping
+profiles, configurable RGB indication, multilingual browser configuration,
+and JSON mapping import/export. See its dedicated README for hardware and
+setup instructions.
 
-The output is:
+## PSP plugin build
 
-	remotejoy-minus.prx
+Install PSPSDK/VitaSDK and ensure `psp-config` is available, then run:
 
-Build with POPS 2P support:
+```sh
+make
+```
 
-	make clean
-	make RJM_ENABLE_POPS_2P=1
+The output is `remotejoy-minus.prx`.
 
-POPS 2P support is intended for the RP2040-zero firmware's PS1 multitap input
-path. See [POPS_2P.md](./POPS_2P.md) for details.
+To enable the separate player-2 stream for two-player POPS titles:
 
-Diagnostic log build:
+```sh
+make clean
+make RJM_ENABLE_POPS_2P=1
+```
 
-	make clean
-	make RJM_ENABLE_LOG=1
+See [POPS_2P.md](./POPS_2P.md) for the POPS controller-assignment behavior and
+known compatibility details.
 
-The diagnostic build writes ms0:/rjm_standalone.log. The normal build does not
-write a log file.
+For a diagnostic plugin that writes `ms0:/rjm_standalone.log`:
 
-Build RP2040-zero Firmware
---------------------------
+```sh
+make clean
+make RJM_ENABLE_LOG=1
+```
 
-The direct PSP USB host firmware is in:
+Normal builds do not write a log file.
 
-	rp2040-zero/
+## PSP installation
 
-Build it with Pico SDK from this directory:
+1. Copy `remotejoy-minus.prx` to the PSP `seplugins` directory.
+2. Add the following line to `VSH.txt`, `GAME.txt`, or `POPS.txt` as needed:
 
-	cd rp2040-zero
-	mkdir -p build
-	cd build
-	cmake .. -DPICO_SDK_PATH=/path/to/pico-sdk
-	make
+   ```text
+   ms0:/seplugins/remotejoy-minus.prx
+   ```
 
-The output UF2 is:
+3. Enable the plugin from the CFW recovery/plugin menu.
 
-	rp2040-zero/build/remotejoy_minus_standalone_usbhost.uf2
+Do not enable `remotejoy.prx` or `RemoteJoyLite.prx` at the same time; they use
+the same PSP USB/controller facilities and conflict with this plugin.
 
-For wiring instructions between the RP2040-zero and a PS1/PS2 controller, please refer to [./rp2040-zero/README.md](./rp2040-zero/README.md).
+When built with `RJM_ENABLE_POPS_2P=1`, loading the plugin from VSH/GAME is
+normally sufficient for the plugin to reserve itself for POPS. Some CFW setups
+may also require the entry in `POPS.txt`.
 
-POPS 2P Support
----------------
+## Firmware builds
 
-With a compatible PS1 multitap such as SCPH-1070, the RP2040-zero firmware can
-read two controller slots:
+### Raspberry Pi Pico 2 W
 
-	Slot 1  normal RemoteJoyMinus input
-	Slot 2  POPS player-2 input
+The Bluetooth/Web-config firmware is in [`pico2w/`](./pico2w/README.md). Its
+UF2 output is:
 
-Slot 1 keeps the same behavior as the normal single-controller setup. In POPS,
-it follows the PSP's own controller assignment behavior instead of being forced
-to PS1 player 1.
+```text
+pico2w/build/remotejoy_minus_pico2w_config.uf2
+```
 
-Slot 2 is sent as a separate player-2 event stream. The PSP plugin enables the
-POPS 2P hook only while Slot 2 is detected, so a single-controller setup keeps
-the normal POPS behavior.
+### RP2040-Zero
 
-For POPS titles that need PS1 L2/R2, configure the POPS HOME-menu controller
-assignment so the PSP analog pad directions are mapped to L2/R2. remotejoy-minus
-intentionally carries PS2 L2/R2 through the PSP analog-pad path in POPS, because
-that keeps POPS's own mapping logic in control.
+The wired PS1/PS2 firmware is in [`rp2040-zero/`](./rp2040-zero/README.md).
+Its UF2 output is:
 
-This was tested with SCPH-1070. The PS2 multitap SCPH-10090 did not respond on
-the controller-port-only bitbang wiring used by this project.
+```text
+rp2040-zero/build/remotejoy_minus_standalone_usbhost.uf2
+```
 
-Install
--------
+## POPS 2P overview
 
-Write the firmware (.uf2) to RP2040-zero.
+The optional P2 protocol keeps the original RemoteJoy event types unchanged
+and adds a separate player-2 button, analog, and connection-status stream.
+Player 1 remains the normal remotejoy-minus input. Player 2 is injected through
+the POPS port-B hook only while a second controller is connected.
 
-On the PSP side, copy remotejoy-minus.prx to the seplugins folder and add the following line to VSH.txt/GAME.txt/POPS.txt as appropriate.
+POPS's HOME-menu controller assignment remains in control of the normal input.
+For games requiring PS1 L2/R2, configure the POPS controller assignment as
+described in [POPS_2P.md](./POPS_2P.md).
 
-	ms0:/seplugins/remotejoy-minus.prx
+The wired firmware has been tested with the SCPH-1070 PS1 multitap. The
+SCPH-10090 PS2 multitap did not respond to its controller-port-only bitbang
+wiring.
 
-When built with `RJM_ENABLE_POPS_2P=1`, enabling the plugin from VSH/GAME is
-enough for the plugin to reserve itself for POPS on compatible CFW setups. If
-your CFW does not load it for POPS that way, also enable the same PRX from
-POPS.txt or the CFW-specific plugin configuration.
+## Acknowledgments
 
-Enable the plugin from the PSP recovery menu.  
-Do not enable remotejoy.prx or RemoteJoyLite.prx because they conflict.  
+This implementation uses the PSPLINKUSB/RemoteJoy controller protocol and a
+USBHostFS-compatible endpoint layout. The PSP input-injection logic derives
+from the original RemoteJoy approach and is reduced to input-only operation.
 
-Acknowledgments
----------------
+[RemoteJoyLite by Kethen](https://github.com/Kethen/RemoteJoyLite) was used as
+a technical reference for the standalone USB PRX structure, controller hooks,
+and POPS behavior.
 
-This implementation is based on the PSPLINKUSB/RemoteJoy controller protocol
-and USBHostFS-style endpoint layout. The PSP-side input injection logic is
-derived from the original RemoteJoy approach and then reduced to input-only
-operation.
+The firmware uses Raspberry Pi Pico SDK and TinyUSB. The Pico 2 W build also
+uses [Bluepad32](https://github.com/ricardoquesada/bluepad32) and BTstack.
 
-[RemoteJoyLite by Kethen](https://github.com/Kethen/RemoteJoyLite) was used as a technical reference for the standalone
-USB PRX structure, controller hook strategy, and POPS behavior.
+## License
 
-The RP2040-zero firmware uses Pico SDK and TinyUSB as build/runtime dependencies.
+Unless otherwise noted, `remotejoy-minus` is distributed under the same BSD
+license as PSPLINKUSB. Third-party files retain their respective licenses; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+This tree contains code and protocol structure derived from PSPLINKUSB
+RemoteJoy/usbhostfs, so its copyright notice, license conditions, and
+disclaimer must be preserved when redistributing source or binaries.
 
-License
--------
-
-remotejoy-minus is distributed under the same BSD license as
-PSPLINKUSB.  
-This tree includes code, protocol definitions, and implementation structure derived from PSPLINKUSB RemoteJoy and usbhostfs, so the PSPLINKUSB BSD copyright notice, license conditions, and disclaimer must be preserved when
-redistributing source or binaries.
-
-In particular, remotejoy.h is copied from the original RemoteJoy source and retains its own license header.
-
-The RP2040-zero firmware links against Pico SDK and TinyUSB. When distributing RP2040-zero source or UF2 binaries, also comply with the license terms of those projects.
+`remotejoy.h` retains its original license header. When distributing firmware,
+also comply with the licenses of Pico SDK, TinyUSB, Bluepad32, BTstack, and the
+vendored pico-examples/MicroPython components. Binary distributions should
+include the license and notice files identified in `THIRD_PARTY_NOTICES.md`.

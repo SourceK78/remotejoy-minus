@@ -1549,10 +1549,10 @@ static int main_thread(SceSize args, void *argp)
 		int len;
 
 		reset_remote_input_state();
+		rjmUsbAsyncFlush();
 		rjmLogText("waiting connect\n");
 		rjmUsbWaitForConnect();
 		rjmLogText("connected\n");
-		rjmUsbAsyncFlush();
 
 		while(rjmUsbIsConnected())
 		{
@@ -1628,6 +1628,7 @@ int module_start(SceSize args, void *argp)
 	rjmLogHex("module popsman ", (int) sceKernelFindModuleByName("popsman"));
 	g_is_pops_context = sceKernelApplicationType() == PSP_INIT_KEYCONFIG_POPS ||
 		sceKernelFindModuleByName("scePops_Manager") != NULL;
+	rjmUsbSetPopsContext(g_is_pops_context);
 	reserve_pops_reboot_load();
 	memset(&g_currjoy, 0, sizeof(g_currjoy));
 	g_currjoy.Lx = ANALOG_CENTER;

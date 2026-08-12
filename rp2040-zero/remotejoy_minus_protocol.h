@@ -12,6 +12,9 @@
 #define RJM_JOY_MAGIC    0x909ACCEFUL
 
 #define RJM_HOSTFS_CMD_HELLO 0x8FFC0000UL
+#define RJM_HOSTFS_CMD_CONTEXT 0x8FFC0001UL
+#define RJM_HOSTFS_CAP_CONTEXT 0x00000001UL
+#define RJM_CONTEXT_POPS       0x00000001UL
 #define RJM_ASYNC_JOY_CHANNEL 4
 
 #define RJM_TYPE_BUTTON_DOWN 1
@@ -80,6 +83,14 @@ static inline size_t rjm_build_hello_response(uint8_t *out)
 	rjm_write_le32(out + 0, RJM_HOSTFS_MAGIC);
 	rjm_write_le32(out + 4, RJM_HOSTFS_CMD_HELLO);
 	rjm_write_le32(out + 8, 0);
+	return 12;
+}
+
+static inline size_t rjm_build_hostfs_response(uint8_t *out, uint32_t command, uint32_t value)
+{
+	rjm_write_le32(out + 0, RJM_HOSTFS_MAGIC);
+	rjm_write_le32(out + 4, command);
+	rjm_write_le32(out + 8, value);
 	return 12;
 }
 

@@ -4,20 +4,21 @@ POPS 2P Support Notes
 Overview
 --------
 
-remotejoy-minus can optionally provide a second controller to POPS when the
-RP2040-zero firmware detects a compatible PS1 multitap.
+remotejoy-minus can optionally provide a second controller to POPS. The
+RP2040-zero firmware obtains it from a compatible PS1 multitap; the Pico 2 W
+firmware obtains it from its persistent Bluetooth 2P slot.
 
 The intended behavior is:
 
-	PS1 multitap Slot 1  -> normal RemoteJoyMinus input
-	PS1 multitap Slot 2  -> POPS player-2 input
+	Input Slot 1  -> normal remotejoy-minus input
+	Input Slot 2  -> POPS player-2 input
 
-Slot 1 is deliberately kept as the normal RemoteJoyMinus input stream. It is
+Slot 1 is deliberately kept as the normal remotejoy-minus input stream. It is
 not forced to POPS player 1. This means POPS's own HOME-menu controller
 assignment continues to decide how PSP hardware input and the normal remote
 input are handled.
 
-Slot 2 is sent over the RemoteJoyMinus async channel as a separate player-2
+Slot 2 is sent over the remotejoy-minus async channel as a separate player-2
 event stream. The PSP plugin enables the POPS 2P patch only while Slot 2 is
 connected.
 
@@ -29,7 +30,8 @@ The PSP plugin must be built with POPS 2P enabled:
 	make clean
 	make RJM_ENABLE_POPS_2P=1
 
-The RP2040-zero firmware also needs the multitap-capable protocol definitions:
+Build the selected RP2040-zero or Pico 2 W firmware. Both use the same P2
+protocol definitions. For the RP2040-zero build:
 
 	cd rp2040-zero
 	mkdir -p build
@@ -78,12 +80,24 @@ When Slot 2 changes between present and absent, the firmware sends
 `TYPE_P2_STATUS`. On disconnect it also returns the cached Slot 2 state to
 neutral so the PSP side releases any held player-2 buttons.
 
+Pico 2 W Side
+-------------
+
+The Pico 2 W firmware assigns connected Bluetooth controllers to its
+persistent 1P/2P slots by address. Both slots use the active shared Web mapping
+profile. Slot 1 emits the original event types and Slot 2 emits `TYPE_P2_*`
+events plus `TYPE_P2_STATUS` on connection changes.
+
+Button transitions are queued from Bluepad32 reports immediately, while
+analog values use the configured dead zones. Disconnecting Slot 2 sends a
+neutral state and disables the POPS port-B hook through `TYPE_P2_STATUS`.
+
 PSP Plugin Side
 ---------------
 
 The PSP plugin maintains two input states:
 
-	g_currjoy  normal RemoteJoyMinus input
+	g_currjoy  normal remotejoy-minus input
 	g_p2joy    POPS player-2 input
 
 Normal JoyEvents update `g_currjoy`. Player-2 JoyEvents update `g_p2joy`.

@@ -20,6 +20,9 @@
 #define HOSTFS_MAGIC      0x782F0812
 #define ASYNC_MAGIC       0x782F0813
 #define HOSTFS_CMD_HELLO  0x8FFC0000
+#define HOSTFS_CMD_CONTEXT 0x8FFC0001
+#define HOSTFS_CAP_CONTEXT 0x00000001
+#define HOSTFS_CONTEXT_POPS 0x00000001
 #define MAX_ASYNC_BUFFER  4096
 #define PSP_USB_ERROR_ALREADY_STARTED 0x80243001
 
@@ -118,6 +121,7 @@ static struct UsbdDeviceReq g_async_req;
 static struct AsyncEndpoint g_async_endp;
 static int g_usb_started;
 static int g_usb_ready;
+static int g_is_pops_context;
 static unsigned char g_transfer_buf[64 * 1024] __attribute__((aligned(64)));
 static unsigned char g_async_buf[512] __attribute__((aligned(64)));
 static int (*g_sceUsbStart)(const char *, int, void *);
@@ -427,13 +431,47 @@ static int send_hello_cmd(void)
 {
 	struct HostFsCmd cmd;
 	struct HostFsCmd resp;
+	struct HostFsCmd context;
+	struct HostFsCmd context_resp;
 
 	memset(&cmd, 0, sizeof(cmd));
 	memset(&resp, 0, sizeof(resp));
 	cmd.magic = HOSTFS_MAGIC;
 	cmd.command = HOSTFS_CMD_HELLO;
 
-	return command_xchg(&cmd, sizeof(cmd), &resp, sizeof(resp));
+	if(!command_xchg(&cmd, sizeof(cmd), &resp, sizeof(resp)))
+	{
+		rjmLogText("usb hello xchg failed\n");
+		return 0;
+	}
+	rjmLogHex("usb hello resp extralen ", resp.extralen);
+	rjmLogHex("usb context is_pops ", g_is_pops_context);
+
+	/* Older RP2040 hosts return zero here and continue to use the original
+	 * protocol.  Only advertise the PSP execution context to hosts that opted
+	 * into this backwards-compatible extension. */
+	if(resp.extralen & HOSTFS_CAP_CONTEXT)
+	{
+		memset(&context, 0, sizeof(context));
+		memset(&context_resp, 0, sizeof(context_resp));
+		context.magic = HOSTFS_MAGIC;
+		context.command = HOSTFS_CMD_CONTEXT;
+		context.extralen = g_is_pops_context ? HOSTFS_CONTEXT_POPS : 0;
+		rjmLogHex("usb context send ", context.extralen);
+		if(!command_xchg(&context, sizeof(context), &context_resp, sizeof(context_resp)))
+		{
+			rjmLogText("usb context xchg failed\n");
+			return 0;
+		}
+		rjmLogHex("usb context resp extralen ", context_resp.extralen);
+	}
+	return 1;
+}
+
+void rjmUsbSetPopsContext(int is_pops)
+{
+	g_is_pops_context = is_pops != 0;
+	rjmLogHex("usb set pops context ", g_is_pops_context);
 }
 
 static void fill_async(void *async_data, int len)

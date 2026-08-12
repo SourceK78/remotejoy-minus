@@ -6,5 +6,10 @@
 *.o
 *.prx
 *.uf2
+*.exe
 exports.c
 rp2040-zero/build*/
+pico2w/build*/
+pico2w/external/*
+!pico2w/external/bluepad32
+pico2w/*.zip

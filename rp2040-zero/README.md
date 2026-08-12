@@ -1,9 +1,9 @@
-RemoteJoyMinus Standalone USB Host
+remotejoy-minus Standalone USB Host
 ==================================
 
 This standalone USB host build enumerates the PSP running remotejoy-minus.prx,
-opens the RemoteJoyMinus bulk endpoints, runs the HostFS-compatible hello
-handshake, and sends RemoteJoyMinus JoyEvent packets from RP2040 input.
+opens the remotejoy-minus bulk endpoints, runs the HostFS-compatible hello
+handshake, and sends remotejoy-minus JoyEvent packets from RP2040 input.
 
 Build
 -----
@@ -114,7 +114,7 @@ PS2 Multitap
 PS1 multitap support is enabled for the first two controller slots. This is
 intended for SCPH-1070-style PS1 multitaps.
 
-Slot 1 is used as the normal RemoteJoyMinus input source. Slot 2 is sent as a
+Slot 1 is used as the normal remotejoy-minus input source. Slot 2 is sent as a
 separate POPS player-2 event stream:
 
 	PS2 multitap slot 2 connected, mode 0x73
@@ -212,7 +212,7 @@ Analog stick:
 	GPIO27 / ADC1  Y axis
 
 The firmware polls every 20 ms, diffs the current state against the previous
-state, and sends only the required RemoteJoyMinus button/analog events.
+state, and sends only the required remotejoy-minus button/analog events.
 
 PCB
 ---

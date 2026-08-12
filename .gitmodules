@@ -1,0 +1,3 @@
+[submodule "pico2w/external/bluepad32"]
+	path = pico2w/external/bluepad32
+	url = https://github.com/ricardoquesada/bluepad32.git

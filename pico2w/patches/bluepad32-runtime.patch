@@ -1,0 +1,81 @@
+diff --git a/examples/pico_w/src/sdkconfig.h b/examples/pico_w/src/sdkconfig.h
+index adbc245..427de3d 100644
+--- a/examples/pico_w/src/sdkconfig.h
++++ b/examples/pico_w/src/sdkconfig.h
+@@ -3,7 +3,8 @@
+ //
+ #define CONFIG_BLUEPAD32_MAX_DEVICES 4
+ #define CONFIG_BLUEPAD32_MAX_ALLOWLIST 4
+-#define CONFIG_BLUEPAD32_GAP_SECURITY 1
++// Security is selected at runtime by remotejoy-minus for normal / DS3 mode.
++// #define CONFIG_BLUEPAD32_GAP_SECURITY 1
+ #define CONFIG_BLUEPAD32_ENABLE_BLE_BY_DEFAULT 1
+ // #define CONFIG_BLUEPAD32_ENABLE_VIRTUAL_DEVICE_BY_DEFAULT 1
+ 
+diff --git a/src/components/bluepad32/bt/uni_bt_bredr.c b/src/components/bluepad32/bt/uni_bt_bredr.c
+index 955cc6f..591fd34 100644
+--- a/src/components/bluepad32/bt/uni_bt_bredr.c
++++ b/src/components/bluepad32/bt/uni_bt_bredr.c
+@@ -20,6 +20,12 @@
+ #include "uni_config.h"
+ #include "uni_log.h"
+ 
++static bool bt_defer_security_request;
++
++void uni_bt_bredr_set_defer_security_request(bool defer) {
++    bt_defer_security_request = defer;
++}
++
+ // These are the only two supported platforms with BR/EDR support.
+ #if !(defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_TARGET_POSIX) || defined(CONFIG_TARGET_PICO_W))
+ #error "This file can only be compiled for ESP32, Pico W, or Posix"
+@@ -653,13 +659,11 @@ void uni_bt_bredr_on_hci_connection_complete(uint16_t channel, const uint8_t* pa
+     if (is_keyboard) {
+         // gap_request_security_level(handle, LEVEL_1);
+     }
+-#ifndef CONFIG_BLUEPAD32_GAP_SECURITY
+-    // Seems to help on certain devices when using GAP Security level 0.
+-    // For exmaple, Dualshock 3 and Nintendo Switch works when the l2cap security level is 0,
+-    // and then I request it here to be 2.
+-    // But this is not perfect solution, since other gamepads requires that L2CAP be at Level 2.
+-    gap_request_security_level(handle, LEVEL_2);
+-#endif
++    // Promote a level-0 legacy ACL unless the application is still preparing
++    // explicit pairing. Do not repeat this request for level-2 services: some
++    // 8BitDo controllers close their HID interrupt channel in that case.
++    if (uni_bt_get_gap_security_level() == 0 && !bt_defer_security_request)
++        gap_request_security_level(handle, LEVEL_2);
+ }
+ 
+ void uni_bt_bredr_on_hci_disconnection_complete(uint16_t channel, const uint8_t* packet, uint16_t size) {
+diff --git a/src/components/bluepad32/include/bt/uni_bt_bredr.h b/src/components/bluepad32/include/bt/uni_bt_bredr.h
+index 87e2b1e..1a4a370 100644
+--- a/src/components/bluepad32/include/bt/uni_bt_bredr.h
++++ b/src/components/bluepad32/include/bt/uni_bt_bredr.h
+@@ -30,6 +30,7 @@ void uni_bt_bredr_setup(void);
+ 
+ void uni_bt_bredr_set_enabled(bool enabled);
+ bool uni_bt_bredr_is_enabled(void);
++void uni_bt_bredr_set_defer_security_request(bool defer);
+ 
+ void uni_bt_bredr_l2cap_create_control_connection(uni_hid_device_t* d);
+ void uni_bt_bredr_process_fsm(uni_hid_device_t* d);
+@@ -49,4 +50,4 @@ void uni_bt_bredr_on_hci_remote_name_request_complete(uint16_t channel, const ui
+ }
+ #endif
+ 
+-#endif  // UNI_BT_BREDR_H
+\ No newline at end of file
++#endif  // UNI_BT_BREDR_H
+diff --git a/src/components/bluepad32/parser/uni_hid_parser_ds5.c b/src/components/bluepad32/parser/uni_hid_parser_ds5.c
+index a22ef26..ae2b5b5 100644
+--- a/src/components/bluepad32/parser/uni_hid_parser_ds5.c
++++ b/src/components/bluepad32/parser/uni_hid_parser_ds5.c
+@@ -931,5 +931,6 @@ static void ds5_parse_mouse(uni_hid_device_t* d, const uint8_t* report, uint16_t
+     ins->x_prev = x;
+     ins->y_prev = y;
+ 
+-    uni_hid_device_process_controller(d);
++    /* The BR/EDR receive path processes the controller after this parser
++       returns. Calling it here too delivered every DualSense packet twice. */
+ }
