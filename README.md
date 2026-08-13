@@ -1,9 +1,8 @@
 # remotejoy-minus standalone
 
-`remotejoy-minus` is an input-only RemoteJoy/USBHostFS implementation for PSP.
-It removes PC video streaming and lets a microcontroller act as the USB host,
-so a PSP-2000/3000 can be played on an external display without PSPLINK or a
-PC-side USBHostFS process.
+This is the RP2040-zero/Raspberry Pi Pico 2W standalone version of remotejoy, with the video output function removed and enabling control via external controllers.
+By combining it with the external output function of the PSP-2000/3000, remote play using a TV screen is possible without a PC.
+Does not require psplink.prx or usbhostfs.prx on the PSP side.
 
 The repository contains the PSP plugin and two input firmware options:
 
