@@ -211,7 +211,7 @@ Analog stick:
 	GPIO26 / ADC0  X axis
 	GPIO27 / ADC1  Y axis
 
-The firmware polls every 20 ms, diffs the current state against the previous
+The firmware polls every 10 ms, diffs the current state against the previous
 state, and sends only the required remotejoy-minus button/analog events.
 
 PCB

@@ -15,11 +15,12 @@
 #define HOSTFS_HELLO_TIMEOUT_MS 2000
 #define HOSTFS_MAGIC_TIMEOUT_MS 2000
 
-#define STATE_REPORT_MS 20
+#define STATE_REPORT_MS 10
 #define STATE_HEARTBEAT_MS 0
 #define BUTTON_REASSERT_MS 80
 #define EVENT_QUEUE_SIZE 16
 #define ENABLE_INPUT_SCAN 1
+#define ENABLE_JOY_EVENT_TRACE 0
 
 #define INPUT_SOURCE_GPIO 0
 #define INPUT_SOURCE_PS2  1
@@ -1258,8 +1259,10 @@ static int send_joy_event_now(int32_t type, uint32_t value)
 	size_t len;
 
 	len = rjm_build_async_joy_event(g_xfer_buf, type, value);
+#if ENABLE_JOY_EVENT_TRACE
 	printf("Sending JoyEvent type %ld value 0x%06lX to endpoint 0x%02X\n",
 		(long) type, (unsigned long) value, g_eps.ep_bulk_out_async);
+#endif
 	return submit_xfer(g_eps.ep_bulk_out_async, g_xfer_buf, (uint16_t) len, joy_event_sent_cb);
 }
 
@@ -1464,7 +1467,9 @@ static void joy_event_sent_cb(tuh_xfer_t *xfer)
 		return;
 	}
 
+#if ENABLE_JOY_EVENT_TRACE
 	printf("JoyEvent sent (%lu bytes)\n", (unsigned long) xfer->actual_len);
+#endif
 	process_event_queue();
 }
 
