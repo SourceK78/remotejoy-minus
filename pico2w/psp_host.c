@@ -5,7 +5,7 @@
 #include "pico/stdlib.h"
 #include "tusb.h"
 #include "remotejoy_minus_protocol.h"
-#include "bluepad_platform.h"
+#include "controller_platform.h"
 
 #define CONFIG_TOTAL_MAX 256
 #define EVENT_QUEUE_SIZE 32
@@ -210,7 +210,7 @@ static void context_read(tuh_xfer_t *xfer)
         le32(g_cmd_buf) != RJM_HOSTFS_MAGIC || le32(g_cmd_buf + 4) != RJM_HOSTFS_CMD_CONTEXT)
         return;
     uint32_t context = le32(g_cmd_buf + 8);
-    rjm_bluepad_set_pops_context((context & RJM_CONTEXT_POPS) != 0);
+    rjm_controller_set_pops_context((context & RJM_CONTEXT_POPS) != 0);
     size_t length = rjm_build_hostfs_response(g_cmd_buf, RJM_HOSTFS_CMD_CONTEXT, context);
     submit(g_eps.bulk_cmd, g_cmd_buf, (uint16_t)length, context_response_sent);
 }

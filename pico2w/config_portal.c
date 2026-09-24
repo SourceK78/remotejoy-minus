@@ -13,9 +13,8 @@
 #include "dhcpserver.h"
 #include "dnsserver.h"
 #include "config_store.h"
-#include "bluepad_platform.h"
+#include "controller_platform.h"
 #include "psp_host.h"
-#include "bt/uni_bt.h"
 
 #define PORTAL_SSID "RemoteJoy-Config"
 #define PORTAL_PASSWORD "remotejoy"
@@ -36,6 +35,12 @@ static struct RjmConfig g_mapping;
 static char g_json[4096];
 static char g_wifi_password[64] = PORTAL_PASSWORD;
 
+#ifdef RJM_JOYPAD_OS_BACKEND
+#define DS3_MODE_CONTROL ""
+#else
+#define DS3_MODE_CONTROL "<label><input id=ds3Mode type=checkbox onchange='setDs3Mode()'><span id=ds3ModeLabel></span></label>"
+#endif
+
 static const char k_page[] =
 "<!doctype html><html lang=ja><meta charset=utf-8><meta name=viewport content='width=device-width'>"
 "<title>RemoteJoy Config</title><style>body{font-family:sans-serif;max-width:760px;margin:24px auto;padding:0 12px}"
@@ -47,7 +52,7 @@ static const char k_page[] =
 "<h1>RemoteJoy Config</h1><label>Language <select id=langSelect onchange='setLanguage(this.value)'><option value=ja>日本語</option><option value=en>English</option><option value=zh-CN>简体中文</option><option value=zh-TW>繁體中文</option><option value=ko>한국어</option><option value=es>Español</option><option value=fr>Français</option><option value=de>Deutsch</option></select></label><p id=intro></p>"
 "<section><h2>1P</h2><div id=s0>---</div><button id=b0 onclick='act(0)'>---</button></section>"
 "<section><h2>2P</h2><div id=s1>---</div><label><input id=p2Enabled type=checkbox onchange='setP2Enabled()'><span id=p2EnabledLabel></span></label><br><button id=b1 onclick='act(1)'>---</button></section>"
-"<section><h2 id=infoTitle></h2><div><span id=btLabel></span>: <code id=btAddress>---</code></div><label><input id=ds3Mode type=checkbox onchange='setDs3Mode()'><span id=ds3ModeLabel></span></label></section>"
+"<section><h2 id=infoTitle></h2><div><span id=btLabel></span>: <code id=btAddress>---</code></div>" DS3_MODE_CONTROL "</section>"
 "<section><h2 id=wifiTitle></h2><div>SSID: <code>RemoteJoy-Config</code></div><label><span id=passwordLabel></span><input id=wifiPassword type=password minlength=8 maxlength=63 autocomplete=new-password></label><br><label><span id=confirmPasswordLabel></span><input id=wifiPasswordConfirm type=password minlength=8 maxlength=63 autocomplete=new-password></label><br><button id=wifiSaveBtn onclick='saveWifi()'></button><p id=wifiNote></p></section>"
 "<section><h2 id=mapTitle></h2><select id=profile onchange='selectProfile()'></select>"
 "<button id=addBtn onclick='addProfile()'></button><button id=deleteBtn onclick='deleteProfile()'></button>"
@@ -83,7 +88,7 @@ static const char k_page[] =
 "const ds3Labels={ja:'DualShock 3モード（再起動後に反映）',en:'DualShock 3 mode (applies after restart)','zh-CN':'DualShock 3模式（重启后生效）','zh-TW':'DualShock 3模式（重新啟動後生效）',ko:'DualShock 3 모드 (재시작 후 적용)',es:'Modo DualShock 3 (tras reiniciar)',fr:'Mode DualShock 3 (après redémarrage)',de:'DualShock-3-Modus (nach Neustart)'};"
 "const wifiTexts={ja:['設定モードWi-Fi','新しいパスワード','パスワード確認','パスワードを保存','次回の設定モードから反映されます。8～63文字で入力してください。','パスワードが一致しません。','パスワードを確認してください。','パスワードを保存しました。'],en:['Setup Wi-Fi','New password','Confirm password','Save password','Applied the next time setup mode starts. Enter 8–63 characters.','Passwords do not match.','Check the password.','Password saved.']};"
 "function setLanguage(code){L=texts[code]||texts.en;langSelect.value=texts[code]?code:'en';localStorage.setItem('rjmLang',langSelect.value);document.documentElement.lang=langSelect.value;"
-"intro.textContent=L.intro;infoTitle.textContent=L.info;btLabel.textContent=L.bt;mapTitle.textContent=L.mapping;addBtn.textContent=L.add;deleteBtn.textContent=L.del;ledLabel.textContent=L.led;customBtn.textContent=L.custom;leftLabel.textContent=L.leftDz;rightLabel.textContent=L.rightDz;p2EnabledLabel.textContent=p2Labels[langSelect.value]||p2Labels.en;ds3ModeLabel.textContent=ds3Labels[langSelect.value]||ds3Labels.en;saveBtn.textContent=L.save;exportBtn.textContent=L.exp;importBtn.textContent=L.imp;doneBtn.textContent=L.done;"
+"intro.textContent=L.intro;infoTitle.textContent=L.info;btLabel.textContent=L.bt;mapTitle.textContent=L.mapping;addBtn.textContent=L.add;deleteBtn.textContent=L.del;ledLabel.textContent=L.led;customBtn.textContent=L.custom;leftLabel.textContent=L.leftDz;rightLabel.textContent=L.rightDz;p2EnabledLabel.textContent=p2Labels[langSelect.value]||p2Labels.en;if(window.ds3ModeLabel)ds3ModeLabel.textContent=ds3Labels[langSelect.value]||ds3Labels.en;saveBtn.textContent=L.save;exportBtn.textContent=L.exp;importBtn.textContent=L.imp;doneBtn.textContent=L.done;"
 "let w=wifiTexts[langSelect.value]||wifiTexts.en;wifiTitle.textContent=w[0];passwordLabel.textContent=w[1]+' ';confirmPasswordLabel.textContent=w[2]+' ';wifiSaveBtn.textContent=w[3];wifiNote.textContent=w[4];"
 "inputs=['A / Cross','B / Circle','X / Square','Y / Triangle','D-pad Up','D-pad Right','D-pad Down','D-pad Left','L1','R1','L2','R2','L3','R3','Select / Create','Start / Options','System / PS','Misc','Right stick Up','Right stick Right','Right stick Down','Right stick Left'];"
 "targets=['None','SELECT','START','D-PAD UP','D-PAD RIGHT','D-PAD DOWN','D-PAD LEFT','L','R','TRIANGLE','CIRCLE','CROSS','SQUARE','HOME','VOL+','VOL-','NOTE','COMBO'];if(cfg)render();if(state)renderSlots()}"
@@ -96,7 +101,7 @@ static const char k_page[] =
 "async function load(){state=await(await fetch('/api/status')).json();renderSlots()}"
 "async function loadConfig(){cfg=await(await fetch('/api/config')).json();render()}"
 "async function saveWifi(){let w=wifiTexts[langSelect.value]||wifiTexts.en,p=wifiPassword.value;if(p!=wifiPasswordConfirm.value)return alert(w[5]);try{await post('/api/wifi/'+encodeURIComponent(p));wifiPassword.value=wifiPasswordConfirm.value='';alert(w[7])}catch(e){alert(w[6])}}"
-"function render(){p2Enabled.checked=cfg.p2Enabled!==false;ds3Mode.checked=cfg.ds3Mode===true;profile.innerHTML=cfg.profiles.map((x,i)=>'<option value='+i+(i==cfg.active?' selected':'')+'>'+x.name+'</option>').join('');"
+"function render(){p2Enabled.checked=cfg.p2Enabled!==false;if(window.ds3Mode)ds3Mode.checked=cfg.ds3Mode===true;profile.innerHTML=cfg.profiles.map((x,i)=>'<option value='+i+(i==cfg.active?' selected':'')+'>'+x.name+'</option>').join('');"
 "let x=cfg.profiles[cfg.active];let hex='#'+x.color.map(v=>v.toString(16).padStart(2,'0')).join('');colorButton.style.background=hex;[colorR.value,colorG.value,colorB.value]=x.color;[colorROut.value,colorGOut.value,colorBOut.value]=x.color;document.querySelectorAll('.swatch').forEach(e=>e.classList.toggle('selected',e.dataset.rgb==x.color.join(',')));leftDz.value=x.deadzone[0];rightDz.value=x.deadzone[1];leftDzOut.value=x.deadzone[0]+'%';rightDzOut.value=x.deadzone[1]+'%';"
 "map.innerHTML='<table>'+inputs.map((n,i)=>'<tr><td>'+n+'</td><td><select onchange=bind('+i+',this.value)>'+targets.map((t,j)=>'<option value='+j+(x.outputs[i]==j?' selected':'')+'>'+t+'</option>').join('')+'</select></td></tr>').join('')+'</table>'}"
 "async function selectProfile(){await post('/api/profile/select/'+profile.value);await loadConfig()}"
@@ -136,7 +141,7 @@ static void schedule_portal_shutdown(void)
 {
     if (g_shutdown_pending) return;
     g_shutdown_pending = true;
-    rjm_bluepad_prepare_reboot();
+    rjm_controller_prepare_reboot();
     btstack_run_loop_set_timer_handler(&g_shutdown_timer, shutdown_timer_handler);
     /* Allow the Bluetooth disconnect packets and the HTTP response to leave
        before resetting CYW43.  The watchdog remains the final fallback even
@@ -228,8 +233,8 @@ static bool send_stream_response(struct tcp_pcb *pcb, const char *body, size_t l
 static void make_status(char *out, size_t size)
 {
     char slot[2][160];
-    bd_addr_t local_addr;
-    uni_bt_get_local_bd_addr_safe(local_addr);
+    uint8_t local_addr[RJM_BT_ADDR_LEN];
+    rjm_controller_get_local_address(local_addr);
     for (int i = 0; i < 2; ++i) {
         const struct RjmPortalSlot *s = &g_slots[i];
         snprintf(slot[i], sizeof(slot[i]),
@@ -339,17 +344,17 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
 
     if (strncmp(request, "POST /api/pair/0 ", 17) == 0) {
         g_pairing_slot = 0;
-        rjm_bluepad_start_pairing();
+        rjm_controller_start_pairing();
         send_response(pcb, "204 No Content", "text/plain", "", 0);
     } else if (strncmp(request, "POST /api/pair/1 ", 17) == 0) {
         g_pairing_slot = 1;
-        rjm_bluepad_start_pairing();
+        rjm_controller_start_pairing();
         send_response(pcb, "204 No Content", "text/plain", "", 0);
     } else if (strncmp(request, "POST /api/unpair/0 ", 19) == 0) {
-        send_response(pcb, rjm_bluepad_request_unpair(0) ? "204 No Content" : "409 Conflict",
+        send_response(pcb, rjm_controller_request_unpair(0) ? "204 No Content" : "409 Conflict",
                       "text/plain", "", 0);
     } else if (strncmp(request, "POST /api/unpair/1 ", 19) == 0) {
-        send_response(pcb, rjm_bluepad_request_unpair(1) ? "204 No Content" : "409 Conflict",
+        send_response(pcb, rjm_controller_request_unpair(1) ? "204 No Content" : "409 Conflict",
                       "text/plain", "", 0);
     } else if (strncmp(request, "POST /api/done ", 15) == 0) {
         rjm_config_store_save_mapping(&g_mapping);
@@ -370,7 +375,7 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
         bool ok = a <= 1;
         if (ok) {
             g_p2_enabled = a != 0;
-            rjm_bluepad_update_scan_state();
+            rjm_controller_update_scan_state();
         }
         send_response(pcb, ok ? "204 No Content" : "400 Bad Request", "text/plain", "", 0);
     } else if (sscanf(request, "POST /api/ds3/enabled/%u ", &a) == 1) {
@@ -497,7 +502,7 @@ void rjm_portal_complete_pairing(int slot, const uint8_t address[RJM_BT_ADDR_LEN
 {
     static const uint8_t zero_address[RJM_BT_ADDR_LEN] = {0};
     if (slot < 0 || slot >= 2) return;
-    /* Never persist an incomplete/virtual Bluepad32 device. */
+    /* Never persist an incomplete or virtual controller device. */
     if (!address || memcmp(address, zero_address, sizeof(zero_address)) == 0) return;
     /* A controller address belongs to exactly one player slot. */
     for (int i = 0; i < 2; ++i) {

@@ -1,0 +1,19 @@
+diff --git a/src/bt/bthid/devices/vendors/sony/ds3_bt.c b/src/bt/bthid/devices/vendors/sony/ds3_bt.c
+--- a/src/bt/bthid/devices/vendors/sony/ds3_bt.c
++++ b/src/bt/bthid/devices/vendors/sony/ds3_bt.c
+@@ -244,10 +244,13 @@ static void ds3_process_report(bthid_device_t* device, const uint8_t* data, uint1
+     data += 1;
+     len -= 1;
+ 
+-    if (len < sizeof(ds3_bt_input_report_t)) {
++    // Genuine DS3 reports can arrive one byte shorter through BTstack's HID
++    // Host event path. Buttons, sticks and pressure values occupy bytes 0-20;
++    // only the optional tail (including the final motion byte) is shortened.
++    const uint16_t required_input_len = 21;
++    if (len < required_input_len) {
+         if (!ds3_report_debug_done) {
+-            printf("[DS3_BT] Report too small: %d < %d\n", len, (int)sizeof(ds3_bt_input_report_t));
++            printf("[DS3_BT] Report too small: %d < %d\n", len, required_input_len);
+             ds3_report_debug_done = true;
+         }
+         return;

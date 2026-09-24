@@ -1,6 +1,6 @@
 # remotejoy-minus for Raspberry Pi Pico 2 W
 
-This firmware connects two Bluetooth controllers through Bluepad32, applies a
+This firmware connects two Bluetooth controllers through joypad-os, applies a
 shared Web-configured mapping profile, and sends remotejoy-minus input events to
 a PSP over USB. It is protocol-compatible with
 [`rp2040-zero/remotejoy_minus_protocol.h`](../rp2040-zero/remotejoy_minus_protocol.h).
@@ -9,7 +9,7 @@ a PSP over USB. It is protocol-compatible with
 
 - Two persistent Bluetooth controller slots for player 1 and player 2.
 - DualSense, DualShock 4, supported Xbox Wireless controllers, DualShock 3,
-  and other controllers supported by Bluepad32.
+  and other controllers supported by joypad-os.
 - Up to eight mapping profiles shared by both players.
 - Controller-centric mapping: each controller input selects a PSP button or
   the internal `COMBO` action.
@@ -72,7 +72,7 @@ make RJM_ENABLE_POPS_2P=1
 
 ## First-time controller setup
 
-1. Flash `remotejoy_minus_pico2w_config.uf2` to the Pico 2 W.
+1. Flash `remotejoy_minus_pico2w.uf2` to the Pico 2 W.
 2. Power the Pico normally. The configuration AP is disabled at startup.
 3. Hold BOOTSEL for about 1.5 seconds.
 4. Connect a PC or phone to:
@@ -88,7 +88,7 @@ make RJM_ENABLE_POPS_2P=1
 
 Finishing setup saves the mapping and reboots into normal mode. A full reboot
 is intentional: it cleanly resets the shared CYW43 Wi-Fi/Bluetooth state and
-makes later configuration-mode entry reliable. Pairing slots, Bluepad32 bond
+makes later configuration-mode entry reliable. Pairing slots, Bluetooth bond
 keys, mappings, and the active profile survive reboot.
 
 PSP output is released and disabled while the configuration portal is active.
@@ -173,18 +173,10 @@ may require the PS button to reconnect.
 ### DualShock 3
 
 DualShock 3 requires manual pairing. Use the Bluetooth address shown in the
-portal and write it to the controller over USB with Bluepad32's
-`sixaxispairer` tool. Then select a Pico slot and press the DS3 PS button.
-Connection may take more than ten seconds. See the
-[Bluepad32 DS3 guide](https://bluepad32.readthedocs.io/en/latest/pair_ds3/).
-
-Pair non-DS3 controllers with **DualShock 3 mode** disabled first. Enable the
-mode when pairing or reconnecting a DS3; disabling it prevents a DS3 from
-reconnecting. When a DS3 and DualSense are connected together in this mode,
-the firmware automatically uses a 20 ms Bluetooth Sniff interval for the
-DualSense link to balance airtime between the two controllers. Other tested
-combinations, including DualSense with 8BitDo and DS3 with 8BitDo, are not
-throttled.
+portal and write it to the controller over USB with a Sixaxis pairing tool.
+Then select a Pico slot and press the DS3 PS button. Pairing security and the
+report-rate adjustment used with a DS3 plus DualSense/DS4 are handled
+automatically by this firmware.
 
 ### 8BitDo controllers
 
@@ -202,7 +194,7 @@ the corresponding 8BitDo manual rather than assuming the M30 shortcut applies.
 
 ## Input and USB behavior
 
-Bluepad32 reports are normalized, mapped, and assigned to a player by the
+joypad-os reports are normalized, mapped, and assigned to a player by the
 persisted Bluetooth address. Button and D-pad transitions are queued
 immediately so short fighting-game inputs are not lost. Analog values are
 updated every 10 ms with the configured dead zones.
@@ -219,40 +211,37 @@ is disabled in this build.
 
 Requirements:
 
-- Pico SDK 2.1 or newer with its submodules initialized.
-- Bluepad32 submodule initialized at `pico2w/external/bluepad32`.
-- CMake, GNU Make or Ninja, and the Arm GNU Toolchain (`arm-none-eabi-gcc`).
+- CMake and a compatible build tool.
+- Arm GNU Toolchain for `arm-none-eabi`.
+- Raspberry Pi Pico SDK.
+- joypad-os submodule initialized at `pico2w/external/joypad-os`.
 
 Example Linux build:
 
 ```sh
-git submodule update --init --recursive
-sh pico2w/scripts/setup-bluepad32.sh
-
-export PICO_SDK_PATH="$HOME/src/pico-sdk"
-git -C "$PICO_SDK_PATH" submodule update --init --recursive
-
+git submodule update --init pico2w/external/joypad-os
+./pico2w/scripts/apply-joypad-os-patches.sh
 cmake -S pico2w -B pico2w/build \
-  -DPICO_SDK_PATH="$PICO_SDK_PATH" \
-  -DPICO_BOARD=pico2_w
-
+  -DPICO_SDK_PATH=/path/to/pico-sdk
 cmake --build pico2w/build --parallel "$(nproc)"
 ```
 
-The setup script applies the runtime compatibility patch stored in
-`pico2w/patches/bluepad32-runtime.patch`. It is safe to run more than once and
-stops if the submodule revision or local changes conflict with the patch. The
-patch contains only the DS3/normal-mode security handling and the DualSense
-duplicate-callback fix required by this firmware. Bluepad32's
-`sixaxispairer` remains unmodified.
+The integration patch script is idempotent. Run it after a fresh clone or after
+updating the pinned joypad-os submodule.
 
-For Windows development, the equivalent patch helper remains available as
-`pico2w/scripts/setup-bluepad32.ps1`.
+On Windows PowerShell, apply the same patch set with:
 
-Output:
+```powershell
+.\pico2w\scripts\apply-joypad-os-patches.ps1
+```
+
+Both scripts also accept an optional joypad-os directory as their first
+argument when the submodule is located somewhere else.
+
+The resulting firmware is:
 
 ```text
-pico2w/build/remotejoy_minus_pico2w_config.uf2
+pico2w/build/remotejoy_minus_pico2w.uf2
 ```
 
 ## Troubleshooting
@@ -273,12 +262,12 @@ pico2w/build/remotejoy_minus_pico2w_config.uf2
 
 ## Dependencies and licenses
 
-This firmware uses Raspberry Pi Pico SDK, TinyUSB, Bluepad32, and BTstack.
+This firmware uses Raspberry Pi Pico SDK, TinyUSB, joypad-os, and BTstack.
 The captive-portal DHCP/DNS sources are vendored from MicroPython and
 Raspberry Pi pico-examples with their original MIT/BSD notices and upstream
 revision recorded under `pico2w/third_party/pico-examples`.
 
 Follow the corresponding license terms when redistributing source or UF2
-binaries. Bluepad32 is Apache-2.0; BTstack licensing conditions also apply.
+binaries. joypad-os is Apache-2.0; BTstack licensing conditions also apply.
 See the repository-level `THIRD_PARTY_NOTICES.md` for attribution and binary
 distribution guidance.

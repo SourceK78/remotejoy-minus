@@ -1,0 +1,33 @@
+diff --git a/src/bt/btstack/btstack_host.c b/src/bt/btstack/btstack_host.c
+--- a/src/bt/btstack/btstack_host.c
++++ b/src/bt/btstack/btstack_host.c
+@@ -2732,13 +2732,18 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
+                    pin_addr[0], pin_addr[1], pin_addr[2], pin_addr[3], pin_addr[4], pin_addr[5]);
+ 
+             // Check if device needs BD_ADDR-based PIN (Wiimote/Wii U Pro)
+             bool needs_bdaddr_pin = false;
++            bool needs_ds3_pin = false;
+             if (classic_state.pending_valid &&
+                 bd_addr_cmp(pin_addr, classic_state.pending_addr) == 0) {
+                 const bt_device_profile_t* pin_profile = classic_state.pending_profile;
+                 if (!pin_profile && classic_state.pending_name[0]) {
+                     pin_profile = bt_device_lookup_by_name(classic_state.pending_name);
+                 }
++                uint32_t pending_cod = classic_state.pending_cod;
++                needs_ds3_pin = (pin_profile == &BT_PROFILE_DS3) ||
++                                strstr(classic_state.pending_name, "PLAYSTATION(R)3") != NULL ||
++                                pending_cod == 0x000508;
+                 if (pin_profile && pin_profile->pin_type == BT_PIN_BDADDR) {
+                     needs_bdaddr_pin = true;
+                 }
+@@ -2764,5 +2770,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
+                 printf("[BTSTACK_HOST] BD_ADDR PIN device detected, sending PIN (host BD_ADDR reversed)\n");
+                 gap_pin_code_response_binary(pin_addr, pin, 6);
++            } else if (needs_ds3_pin) {
++                // DualShock 3 uses legacy pairing rather than SSP. Its fixed
++                // PIN is the four ASCII digits "0000".
++                static const uint8_t ds3_pin[] = {'0', '0', '0', '0'};
++                gap_pin_code_response_binary(pin_addr, ds3_pin, sizeof(ds3_pin));
+             } else {
+                 // No BD_ADDR PIN needed - reject (SSP devices shouldn't ask for PIN)
+                 printf("[BTSTACK_HOST] PIN request rejected (no BD_ADDR PIN profile)\n");

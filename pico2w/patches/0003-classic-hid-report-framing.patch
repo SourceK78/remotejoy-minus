@@ -1,0 +1,28 @@
+diff --git a/src/bt/btstack/btstack_host.c b/src/bt/btstack/btstack_host.c
+--- a/src/bt/btstack/btstack_host.c
++++ b/src/bt/btstack/btstack_host.c
+@@ -5627,11 +5627,22 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
+             }
+ 
+             // Route to bthid layer
+-            // BTstack report already includes 0xA1 header (DATA|INPUT)
+             int conn_index = get_classic_conn_index(hid_cid);
+             if (conn_index >= 0 && report_len > 0) {
+-                bt_on_hid_report(conn_index, report, report_len);
++                // BTstack versions differ on whether HID_SUBEVENT_REPORT
++                // retains the DATA|INPUT transaction header. bthid expects it.
++                if ((report[0] & 0xf0) == 0xa0) {
++                    bt_on_hid_report(conn_index, report, report_len);
++                } else {
++                    uint8_t framed_report[128];
++                    if (report_len < sizeof(framed_report)) {
++                        framed_report[0] = 0xa1;
++                        memcpy(&framed_report[1], report, report_len);
++                        bt_on_hid_report(conn_index, framed_report, report_len + 1);
++                    } else {
++                        printf("[BTSTACK_HOST] Classic HID report too large: %u\n", report_len);
++                    }
++                }
+             }
+             break;
+         }

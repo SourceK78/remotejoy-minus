@@ -1,0 +1,23 @@
+diff --git a/src/bt/bthid/devices/vendors/sony/ds3_bt.c b/src/bt/bthid/devices/vendors/sony/ds3_bt.c
+--- a/src/bt/bthid/devices/vendors/sony/ds3_bt.c
++++ b/src/bt/bthid/devices/vendors/sony/ds3_bt.c
+@@ -434,8 +434,13 @@ static void ds3_task(bthid_device_t* device)
+         case 1:  // Wait 150ms then send LED
+             if (now - ds3->activation_time >= 150) {
+-                printf("[DS3_BT] Sending LED command\n");
+-                ds3_send_output(device, 0x02, 0, 0);  // LED 1 = bit 1
+-                ds3->player_led = 0x02;
++                int player_idx = find_player_index(ds3->event.dev_addr, ds3->event.instance);
++                uint8_t led = 0x02;
++                if (player_idx >= 0) {
++                    led = PLAYER_LEDS[player_idx + 1] << 1;
++                }
++                printf("[DS3_BT] Sending LED command for player %d\n", player_idx + 1);
++                ds3_send_output(device, led, 0, 0);
++                /* If slot assignment is not ready yet, do not cache the
++                 * fallback LED. State 2 will resend after player_idx becomes
++                 * available. This matters for player 1 because its desired
++                 * LED equals the fallback value. */
++                ds3->player_led = player_idx >= 0 ? led : 0;
+                 ds3->activation_state = 2;
+             }

@@ -1,0 +1,34 @@
+diff --git a/src/bt/btstack/btstack_host.h b/src/bt/btstack/btstack_host.h
+--- a/src/bt/btstack/btstack_host.h
++++ b/src/bt/btstack/btstack_host.h
+@@ -93,6 +93,7 @@ bool btstack_classic_get_connection(uint8_t conn_index, btstack_classic_conn_inf
+ uint8_t btstack_classic_get_connection_count(void);
++uint16_t btstack_classic_get_acl_handle(uint8_t conn_index);
+ 
+ // Get last-connected bonded device (returns false if none stored).
+diff --git a/src/bt/btstack/btstack_host.c b/src/bt/btstack/btstack_host.c
+--- a/src/bt/btstack/btstack_host.c
++++ b/src/bt/btstack/btstack_host.c
+@@ -282,6 +282,7 @@ typedef struct {
+     bool active;
+     uint16_t hid_cid;           // BTstack HID connection ID
++    hci_con_handle_t acl_handle;
+     bd_addr_t addr;
+@@ -5453,6 +5454,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
+             classic_connection_t* conn = find_classic_connection_by_cid(hid_cid);
+             if (conn) {
++                conn->acl_handle = hid_subevent_connection_opened_get_con_handle(packet);
+                 conn->hid_ready = true;
+@@ -6184,6 +6186,14 @@ bool btstack_classic_get_connection(uint8_t conn_index, btstack_classic_conn_info
+     return true;
+ }
+ 
++uint16_t btstack_classic_get_acl_handle(uint8_t conn_index)
++{
++    if (conn_index >= MAX_CLASSIC_CONNECTIONS) return HCI_CON_HANDLE_INVALID;
++    classic_connection_t* conn = &classic_state.connections[conn_index];
++    if (!conn->active || !conn->hid_ready) return HCI_CON_HANDLE_INVALID;
++    return conn->acl_handle;
++}
++
+ // Get number of active connections (Classic + BLE)

@@ -3,22 +3,19 @@
 Unless otherwise noted, remotejoy-minus is licensed under the BSD 3-Clause
 License in `LICENSE`. Third-party components retain their own licenses.
 
-## Bluepad32
+## joypad-os
 
-Bluepad32 is Copyright 2019 Ricardo Quesada and contributors and is licensed
-under the Apache License 2.0. It is included as the
-`pico2w/external/bluepad32` Git submodule. Its license text is available at
-`pico2w/external/bluepad32/LICENSE` after submodule initialization.
+joypad-os is licensed under the Apache License 2.0. It is included as the
+`pico2w/external/joypad-os` Git submodule. Its license text is available at
+`pico2w/external/joypad-os/LICENSE` after submodule initialization.
 
-`pico2w/patches/bluepad32-runtime.patch` modifies Bluepad32 for runtime
-Bluetooth security selection, DS3 compatibility, 8BitDo reconnection handling,
-and DualSense callback handling. These modifications do not change
-Bluepad32's Apache License 2.0 terms.
+The patches under `pico2w/patches` adapt joypad-os for this firmware's Classic
+Bluetooth, DualShock 3, controller-forgetting, and 8BitDo reconnection behavior.
+These modifications do not change joypad-os's Apache License 2.0 terms.
 
-Bluepad32 uses BTstack. The Bluepad32 license notice states that BTstack is
-free for open-source projects but may require a BlueKitchen commercial license
-for commercial use. Review the current BTstack/BlueKitchen terms before
-commercial distribution or product integration.
+The Pico SDK provides BTstack for the Pico 2 W build. Review the applicable
+BTstack/BlueKitchen license terms before commercial distribution or product
+integration.
 
 ## Raspberry Pi pico-examples
 
@@ -36,5 +33,5 @@ licensed under the MIT License. Their source headers are retained; see
 ## Binary distribution
 
 When redistributing UF2 or other binaries, include the repository `LICENSE`,
-this notice, the Bluepad32 Apache License 2.0 text, and the vendored
+this notice, the joypad-os Apache License 2.0 text, and the vendored
 pico-examples/MicroPython license texts in the accompanying materials.

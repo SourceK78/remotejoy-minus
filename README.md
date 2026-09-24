@@ -8,7 +8,7 @@ The repository contains the PSP plugin and two input firmware options:
 
 | Firmware | Input | Configuration | Players |
 |---|---|---|---|
-| [Pico 2 W](./pico2w/README.md) | Bluetooth via Bluepad32 | Wi-Fi Web portal | 1P and optional POPS 2P |
+| [Pico 2 W](./pico2w/README.md) | Bluetooth via joypad-os | Wi-Fi Web portal | 1P and optional POPS 2P |
 | [RP2040-Zero](./rp2040-zero/README.md) | Wired PS1/PS2 controllers | Compile-time | 1P and PS1 multitap POPS 2P |
 
 The Pico 2 W firmware supports persistent controller pairing, shared mapping
@@ -71,7 +71,7 @@ The Bluetooth/Web-config firmware is in [`pico2w/`](./pico2w/README.md). Its
 UF2 output is:
 
 ```text
-pico2w/build/remotejoy_minus_pico2w_config.uf2
+pico2w/build/remotejoy_minus_pico2w.uf2
 ```
 
 ### RP2040-Zero
@@ -109,7 +109,7 @@ a technical reference for the standalone USB PRX structure, controller hooks,
 and POPS behavior.
 
 The firmware uses Raspberry Pi Pico SDK and TinyUSB. The Pico 2 W build also
-uses [Bluepad32](https://github.com/ricardoquesada/bluepad32) and BTstack.
+uses [joypad-os](https://github.com/joypad-ai/joypad-os) and BTstack.
 
 ## License
 
@@ -121,6 +121,6 @@ RemoteJoy/usbhostfs, so its copyright notice, license conditions, and
 disclaimer must be preserved when redistributing source or binaries.
 
 `remotejoy.h` retains its original license header. When distributing firmware,
-also comply with the licenses of Pico SDK, TinyUSB, Bluepad32, BTstack, and the
+also comply with the licenses of Pico SDK, TinyUSB, joypad-os, BTstack, and the
 vendored pico-examples/MicroPython components. Binary distributions should
 include the license and notice files identified in `THIRD_PARTY_NOTICES.md`.

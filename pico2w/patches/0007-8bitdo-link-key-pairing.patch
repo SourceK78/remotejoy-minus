@@ -1,0 +1,41 @@
+diff --git a/src/bt/btstack/btstack_host.c b/src/bt/btstack/btstack_host.c
+--- a/src/bt/btstack/btstack_host.c
++++ b/src/bt/btstack/btstack_host.c
+@@ -2123,12 +2123,11 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
+                             // Request authentication only if we have a stored key (reconnection).
+                             // For new pairings (no key), defer auth to after name resolution
+                             // to avoid concurrent SDP+auth on CYW43 and to let device type
+                             // detection (Switch vs Sony) determine the connection path.
+-                            link_key_t incoming_link_key;
+-                            link_key_type_t incoming_key_type;
+-                            if (gap_get_link_key_for_bd_addr(addr, incoming_link_key, &incoming_key_type)) {
+-                                gap_request_security_level(handle, LEVEL_2);
+-                            }
++                            // A stored Classic key is presented automatically when the
++                            // controller or its HID channel requests encryption. Starting a
++                            // second security procedure here races some 8BitDo controllers
++                            // and makes them close the ACL during reconnection.
+                         }
+                     }
+                 }
+@@ -2460,6 +2459,24 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
+                 const bt_device_profile_t* late_profile = bt_device_lookup_by_name(name);
+                 bool late_direct_l2cap = (late_profile->classic == BT_CLASSIC_DIRECT_L2CAP);
+ 
++                // 8BitDo pads can establish an unencrypted HID session during first
++                // pairing when the host default is LEVEL_0 (needed by DS3). Explicitly
++                // authenticate after the remote name is known so a reusable link key is
++                // generated. Reconnects with that key use BTstack's automatic path above.
++                if (classic_state.pending_valid &&
++                    !classic_state.pending_outgoing &&
++                    memcmp(name_addr, classic_state.pending_addr, 6) == 0 &&
++                    (strstr(name, "8BitDo") || strstr(name, "8Bitdo") || strstr(name, "8bitdo"))) {
++                    link_key_t key;
++                    link_key_type_t key_type;
++                    if (!gap_get_link_key_for_bd_addr(name_addr, key, &key_type)) {
++                        printf("[BTSTACK_HOST] 8BitDo first pairing: requesting Level 2 security\n");
++                        gap_request_security_level(classic_state.pending_acl_handle, LEVEL_2);
++                    }
++                }
++
+ #ifdef BTSTACK_USE_CYW43

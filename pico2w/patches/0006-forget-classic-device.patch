@@ -1,0 +1,27 @@
+diff --git a/src/bt/btstack/btstack_host.c b/src/bt/btstack/btstack_host.c
+--- a/src/bt/btstack/btstack_host.c
++++ b/src/bt/btstack/btstack_host.c
+@@ -6370,6 +6370,15 @@ void btstack_host_forget_device(const uint8_t bd_addr[6])
+         }
+     }
+ 
++    // Disconnect a matching Classic ACL as well. Without this, an unpaired
++    // controller can remain connected until it powers off.
++    for (int i = 0; i < MAX_CLASSIC_CONNECTIONS; i++) {
++        classic_connection_t* conn = &classic_state.connections[i];
++        if (conn->active && memcmp(conn->addr, addr, 6) == 0 &&
++            conn->acl_handle != HCI_CON_HANDLE_INVALID) {
++            gap_disconnect(conn->acl_handle);
++        }
++    }
++
+     // Remove BLE bond
+@@ -6388,9 +6397,7 @@ void btstack_host_forget_device(const uint8_t bd_addr[6])
+     }
+ 
+     // Remove Classic link key
+-#ifdef ENABLE_CLASSIC
+     gap_drop_link_key_for_bd_addr(addr);
+-#endif
+ 
+     // Clear last-connected if it matches

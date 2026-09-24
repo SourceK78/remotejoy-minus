@@ -1,3 +1,3 @@
-[submodule "pico2w/external/bluepad32"]
-	path = pico2w/external/bluepad32
-	url = https://github.com/ricardoquesada/bluepad32.git
+[submodule "pico2w/external/joypad-os"]
+	path = pico2w/external/joypad-os
+	url = https://github.com/joypad-ai/joypad-os.git

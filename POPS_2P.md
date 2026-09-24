@@ -88,7 +88,7 @@ persistent 1P/2P slots by address. Both slots use the active shared Web mapping
 profile. Slot 1 emits the original event types and Slot 2 emits `TYPE_P2_*`
 events plus `TYPE_P2_STATUS` on connection changes.
 
-Button transitions are queued from Bluepad32 reports immediately, while
+Button transitions are queued from Bluetooth controller reports immediately, while
 analog values use the configured dead zones. Disconnecting Slot 2 sends a
 neutral state and disables the POPS port-B hook through `TYPE_P2_STATUS`.
 
