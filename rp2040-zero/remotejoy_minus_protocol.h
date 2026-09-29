@@ -26,6 +26,13 @@
 #define RJM_TYPE_P2_ANALOG_Y    8
 #define RJM_TYPE_P2_ANALOG_X    9
 #define RJM_TYPE_P2_STATUS      10
+/* Absolute aim position for title-specific POPS aim injection.
+ * value = (x << 16) | y, each axis 0..65535 across the whole screen. */
+#define RJM_TYPE_AIM            11
+/* Stop aim injection and hand the aim back to the game's own input. */
+#define RJM_TYPE_AIM_RELEASE    12
+/* Aim is active but pointing off screen (a light gun sees no light). */
+#define RJM_TYPE_AIM_OFFSCREEN  13
 
 #define PSP_CTRL_SELECT     0x000001UL
 #define PSP_CTRL_START      0x000008UL

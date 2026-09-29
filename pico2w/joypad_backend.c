@@ -17,6 +17,8 @@
 #include "core/buttons.h"
 #include "core/input_event.h"
 #include "core/services/players/feedback.h"
+#include "gyro_aim.h"
+#include "hardware/timer.h"
 #include "psp_host.h"
 #include "runtime_ui.h"
 
@@ -49,6 +51,54 @@ static void assign_player(bthid_device_t *device, int player)
             feedback->led_dirty = true;
         }
     }
+}
+
+/* Gyro aim is produced for player 1 only and only inside POPS, where the PSP
+ * plugin presents it to the game as a GunCon. */
+#define GYRO_AIM_PLAYER 0
+
+static enum RjmGyroKind gyro_kind_for_device(const bthid_device_t *device)
+{
+    if (device->driver == &ds4_bt_driver || device->driver == &ds5_bt_driver)
+        return RJM_GYRO_KIND_PLAYSTATION;
+    /* DS3 reports a single yaw axis only; other drivers carry no motion. */
+    return RJM_GYRO_KIND_NONE;
+}
+
+static void release_gyro_aim(void)
+{
+    rjm_gyro_aim_reset(GYRO_AIM_PLAYER);
+    rjm_psp_host_set_aim(false, 0, 0, false);
+}
+
+static void update_gyro_aim(int player, const bthid_device_t *device,
+                            const input_event_t *event, uint32_t inputs)
+{
+    if (player != GYRO_AIM_PLAYER) return;
+
+    struct RjmGyroSample sample = {
+        .kind = event->has_motion ? gyro_kind_for_device(device) : RJM_GYRO_KIND_NONE,
+        .gyro_range_dps = event->gyro_range,
+        .accel_range_mg = event->accel_range,
+        .time_us = time_us_32(),
+        .recenter = (inputs & ((1u << RJM_INPUT_L3) | (1u << RJM_INPUT_R3))) != 0,
+        .span_deg = rjm_portal_gyro_span(),
+    };
+    uint16_t x, y;
+    bool offscreen = false;
+
+    /* Gyro aim drives the PSP-side GunCon, so it is sent only inside POPS and
+     * only while the active profile has GunCon mode on. */
+    if (!g_pops_context || !rjm_portal_guncon_enabled() || sample.kind == RJM_GYRO_KIND_NONE) {
+        release_gyro_aim();
+        return;
+    }
+    memcpy(sample.gyro, event->gyro, sizeof(sample.gyro));
+    memcpy(sample.accel, event->accel, sizeof(sample.accel));
+    if (rjm_gyro_aim_update(player, &sample, &x, &y, &offscreen))
+        rjm_psp_host_set_aim(true, x, y, offscreen);
+    else
+        release_gyro_aim();
 }
 
 static bool p2_runtime_enabled(void)
@@ -141,6 +191,8 @@ bool rjm_joypad_backend_init(void)
     struct RjmConfig mapping;
     bool p2_enabled = true;
     bool ds3_mode = false;
+    uint8_t gyro_span = RJM_GYRO_SPAN_DEFAULT_DEG;
+    uint8_t guncon_mask = 0;
 
     bt_init(&bt_transport_cyw43);
     /* HCI power-on completes asynchronously. The host handlers being ready is
@@ -149,12 +201,18 @@ bool rjm_joypad_backend_init(void)
     if (!btstack_host_is_initialized()) return false;
 
     if (rjm_config_store_load_slots(slots)) rjm_portal_restore_slots(slots);
-    if (!rjm_config_store_load_mapping(&mapping)) rjm_config_set_defaults(&mapping);
+    bool mapping_loaded = rjm_config_store_load_mapping(&mapping);
+    if (!mapping_loaded) rjm_config_set_defaults(&mapping);
     rjm_config_store_load_p2_enabled(&p2_enabled);
     rjm_config_store_load_ds3_mode(&ds3_mode);
+    rjm_config_store_load_gyro_span(&gyro_span);
+    rjm_portal_restore_gyro_span(gyro_span);
     rjm_portal_restore_p2_enabled(p2_enabled);
     rjm_portal_restore_ds3_mode(ds3_mode);
     rjm_portal_restore_mapping(&mapping);
+    /* The GunCon bits belong to the stored profiles; drop them with them. */
+    if (mapping_loaded) rjm_config_store_load_guncon_mask(&guncon_mask);
+    rjm_portal_restore_guncon_mask(guncon_mask);
 
     rjm_runtime_ui_init();
     rjm_psp_host_init();
@@ -294,6 +352,7 @@ void rjm_joypad_input_event(const input_event_t *event)
     state->axis[RJM_AXIS_LEFT_Y] = ((int16_t)event->analog[ANALOG_LY] - 128) * 256;
     state->axis[RJM_AXIS_RIGHT_X] = ((int16_t)event->analog[ANALOG_RX] - 128) * 256;
     state->axis[RJM_AXIS_RIGHT_Y] = ((int16_t)event->analog[ANALOG_RY] - 128) * 256;
+    update_gyro_aim(player, device, event, inputs);
 
     if (!g_input_connected[player]) {
         g_input_connected[player] = true;
@@ -321,6 +380,7 @@ void rjm_joypad_device_disconnected(uint8_t conn_index)
         g_input_connected[player] = false;
         g_combo_chord[player] = false;
         rjm_psp_host_set_state(player, NULL, false);
+        if (player == GYRO_AIM_PLAYER) release_gyro_aim();
     }
     rjm_portal_set_connected(device->bd_addr, false);
     update_scan_state();
@@ -361,6 +421,7 @@ void rjm_controller_prepare_reboot(void)
 void rjm_controller_set_pops_context(bool is_pops)
 {
     g_pops_context = is_pops;
+    if (!is_pops) release_gyro_aim();
     remap_players();
     update_scan_state();
 }

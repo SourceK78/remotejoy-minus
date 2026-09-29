@@ -15,7 +15,7 @@ Use Pico SDK:
 	cmake .. -DPICO_SDK_PATH=/path/to/pico-sdk
 	make
 
-Flash remotejoy_minus_standalone_usbhost.uf2 to the RP2040-zero.
+Flash remotejoy_minus_rp2040.uf2 to the RP2040-zero.
 
 Wiring and Logs
 ---------------

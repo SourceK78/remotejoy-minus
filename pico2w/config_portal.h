@@ -32,5 +32,10 @@ bool rjm_portal_p2_enabled(void);
 void rjm_portal_restore_p2_enabled(bool enabled);
 bool rjm_portal_ds3_mode(void);
 void rjm_portal_restore_ds3_mode(bool enabled);
+uint8_t rjm_portal_gyro_span(void);
+/* GunCon mode of the active profile: gyro aim is sent to the PSP only then. */
+bool rjm_portal_guncon_enabled(void);
+void rjm_portal_restore_guncon_mask(uint8_t mask);
+void rjm_portal_restore_gyro_span(uint8_t span_deg);
 
 #endif

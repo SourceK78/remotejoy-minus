@@ -17,6 +17,12 @@
 #define RJM_DS3_SETTING_MAGIC 0x31335344u
 #define RJM_WIFI_SETTING_TAG 0x524A4D36u
 #define RJM_WIFI_SETTING_MAGIC 0x31494657u
+#define RJM_GYRO_SETTING_TAG 0x524A4D37u
+#define RJM_GYRO_SETTING_MAGIC 0x314F5947u
+/* Per-profile GunCon mode, one bit per profile index. Kept outside the
+ * mapping record so existing saved mappings stay valid. */
+#define RJM_GUNCON_SETTING_TAG 0x524A4D38u
+#define RJM_GUNCON_SETTING_MAGIC 0x314E4347u
 
 struct StoredConfig {
     uint32_t magic;
@@ -44,6 +50,13 @@ struct StoredP2Setting {
 struct StoredDs3Setting {
     uint32_t magic;
     uint8_t enabled;
+    uint8_t reserved[3];
+    uint32_t checksum;
+};
+
+struct StoredGyroSetting {
+    uint32_t magic;
+    uint8_t span_deg;
     uint8_t reserved[3];
     uint32_t checksum;
 };
@@ -184,6 +197,65 @@ bool rjm_config_store_save_ds3_mode(bool enabled)
     stored.checksum = checksum(&stored, offsetof(struct StoredDs3Setting, checksum));
     btstack_tlv_get_instance(&impl, &context);
     return impl && context && impl->store_tag(context, RJM_DS3_SETTING_TAG,
+        (const uint8_t *)&stored, sizeof(stored)) == 0;
+}
+
+bool rjm_config_store_load_gyro_span(uint8_t *span_deg)
+{
+    const btstack_tlv_t *impl;
+    void *context;
+    struct StoredGyroSetting stored;
+    if (!span_deg) return false;
+    btstack_tlv_get_instance(&impl, &context);
+    if (!impl || !context || impl->get_tag(context, RJM_GYRO_SETTING_TAG,
+            (uint8_t *)&stored, sizeof(stored)) != sizeof(stored)) return false;
+    if (stored.magic != RJM_GYRO_SETTING_MAGIC ||
+        stored.checksum != checksum(&stored, offsetof(struct StoredGyroSetting, checksum))) return false;
+    *span_deg = stored.span_deg;
+    return true;
+}
+
+bool rjm_config_store_save_gyro_span(uint8_t span_deg)
+{
+    const btstack_tlv_t *impl;
+    void *context;
+    struct StoredGyroSetting stored = {
+        .magic = RJM_GYRO_SETTING_MAGIC,
+        .span_deg = span_deg,
+    };
+    stored.checksum = checksum(&stored, offsetof(struct StoredGyroSetting, checksum));
+    btstack_tlv_get_instance(&impl, &context);
+    return impl && context && impl->store_tag(context, RJM_GYRO_SETTING_TAG,
+        (const uint8_t *)&stored, sizeof(stored)) == 0;
+}
+
+bool rjm_config_store_load_guncon_mask(uint8_t *mask)
+{
+    const btstack_tlv_t *impl;
+    void *context;
+    struct StoredGyroSetting stored;
+    if (!mask) return false;
+    btstack_tlv_get_instance(&impl, &context);
+    if (!impl || !context || impl->get_tag(context, RJM_GUNCON_SETTING_TAG,
+            (uint8_t *)&stored, sizeof(stored)) != sizeof(stored)) return false;
+    if (stored.magic != RJM_GUNCON_SETTING_MAGIC ||
+        stored.checksum != checksum(&stored, offsetof(struct StoredGyroSetting, checksum))) return false;
+    *mask = stored.span_deg;
+    return true;
+}
+
+bool rjm_config_store_save_guncon_mask(uint8_t mask)
+{
+    const btstack_tlv_t *impl;
+    void *context;
+    /* Same one-byte record layout as the gyro setting. */
+    struct StoredGyroSetting stored = {
+        .magic = RJM_GUNCON_SETTING_MAGIC,
+        .span_deg = mask,
+    };
+    stored.checksum = checksum(&stored, offsetof(struct StoredGyroSetting, checksum));
+    btstack_tlv_get_instance(&impl, &context);
+    return impl && context && impl->store_tag(context, RJM_GUNCON_SETTING_TAG,
         (const uint8_t *)&stored, sizeof(stored)) == 0;
 }
 

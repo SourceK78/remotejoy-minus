@@ -13,13 +13,16 @@
 #define HOSTFS_TIMEOUT_MS 2000
 #define REPORT_MS 10
 #define ANALOG_DEADBAND 2
+/* One PSP-side game pixel is roughly 256 aim units; skip sub-pixel jitter. */
+#define AIM_DEADBAND 32
 
 struct Endpoints {
     uint8_t bulk_in, bulk_cmd, bulk_async;
 };
 struct Event { int32_t type; uint32_t value; };
 struct PlayerState { uint32_t buttons; uint8_t x, y; bool connected; };
-enum TransferKind { TRANSFER_NONE, TRANSFER_EVENT, TRANSFER_ANALOG };
+enum TransferKind { TRANSFER_NONE, TRANSFER_EVENT, TRANSFER_ANALOG, TRANSFER_AIM };
+struct AimState { bool active; bool offscreen; uint16_t x, y; };
 
 static uint8_t g_device_desc[18];
 static uint8_t g_config_desc[CONFIG_TOTAL_MAX];
@@ -33,6 +36,9 @@ static struct PlayerState g_state[2];
 static struct PlayerState g_last[2];
 static uint8_t g_pending_axis[2][2];
 static bool g_axis_pending[2][2];
+static struct AimState g_aim;          /* latest requested aim */
+static struct AimState g_aim_last;     /* last aim accepted for sending */
+static bool g_aim_pending;
 static btstack_timer_source_t g_usb_timer;
 static uint8_t g_daddr, g_head, g_tail;
 static enum TransferKind g_transfer_kind;
@@ -64,6 +70,8 @@ static void reset_host(void)
     g_head = g_tail = 0;
     g_transfer_kind = TRANSFER_NONE;
     memset(g_axis_pending, 0, sizeof(g_axis_pending));
+    memset(&g_aim_last, 0, sizeof(g_aim_last));
+    g_aim_pending = false;
     g_status = "未接続";
     for (int i = 0; i < 2; ++i) {
         g_last[i].buttons = 0; g_last[i].x = g_last[i].y = 128; g_last[i].connected = false;
@@ -100,7 +108,50 @@ void rjm_psp_host_set_enabled(bool enabled)
             g_state[i].x = g_state[i].y = 128;
             g_state[i].connected = false;
         }
+        g_aim.active = false;
     }
+}
+
+static int abs_int(int value);
+
+static int32_t aim_event_type(const struct AimState *aim)
+{
+    if (!aim->active) return RJM_TYPE_AIM_RELEASE;
+    return aim->offscreen ? RJM_TYPE_AIM_OFFSCREEN : RJM_TYPE_AIM;
+}
+
+static uint32_t aim_event_value(const struct AimState *aim)
+{
+    return (aim->active && !aim->offscreen) ? (((uint32_t)aim->x << 16) | aim->y) : 0;
+}
+
+/* Queue the aim when it moved enough (or its active state changed). */
+static bool check_aim(void)
+{
+    struct AimState aim = g_aim;
+    if (aim.active != g_aim_last.active ||
+        (aim.active && aim.offscreen != g_aim_last.offscreen) ||
+        (aim.active && !aim.offscreen &&
+                       (abs_int((int)aim.x - g_aim_last.x) >= AIM_DEADBAND ||
+                        abs_int((int)aim.y - g_aim_last.y) >= AIM_DEADBAND))) {
+        g_aim_last = aim;
+        g_aim_pending = true;
+        return true;
+    }
+    return false;
+}
+
+void rjm_psp_host_set_aim(bool active, uint16_t x, uint16_t y, bool offscreen)
+{
+    if (!g_input_enabled) active = false;
+    g_aim.active = active;
+    g_aim.offscreen = active && offscreen;
+    g_aim.x = active ? x : 0;
+    g_aim.y = active ? y : 0;
+    /* Send right away instead of waiting for the 10 ms poll: the aim only
+     * changes when a controller report arrives, so this removes up to one
+     * poll period of latency without adding traffic. */
+    if (g_handshake_complete && check_aim()) process_queue();
 }
 
 static bool queue_event(int32_t type, uint32_t value)
@@ -146,6 +197,10 @@ static void event_sent(tuh_xfer_t *xfer)
     if (xfer->result == XFER_RESULT_SUCCESS) {
         if (g_transfer_kind == TRANSFER_EVENT) {
             g_head = (uint8_t)((g_head + 1) % EVENT_QUEUE_SIZE);
+        } else if (g_transfer_kind == TRANSFER_AIM &&
+                   g_inflight_event.type == aim_event_type(&g_aim_last) &&
+                   g_inflight_event.value == aim_event_value(&g_aim_last)) {
+            g_aim_pending = false;
         } else if (g_transfer_kind == TRANSFER_ANALOG &&
                    g_axis_pending[g_inflight_player][g_inflight_axis] &&
                    g_pending_axis[g_inflight_player][g_inflight_axis] == g_inflight_event.value) {
@@ -175,6 +230,11 @@ static void process_queue(void)
                 g_transfer_kind = TRANSFER_ANALOG;
                 break;
             }
+        }
+        if (g_transfer_kind == TRANSFER_NONE && g_aim_pending) {
+            g_inflight_event.type = aim_event_type(&g_aim_last);
+            g_inflight_event.value = aim_event_value(&g_aim_last);
+            g_transfer_kind = TRANSFER_AIM;
         }
         if (g_transfer_kind == TRANSFER_NONE) return;
     }
@@ -327,6 +387,7 @@ static void poll_state(void)
             g_pending_axis[p][1] = state.y; g_axis_pending[p][1] = true; last->y = state.y;
         }
     }
+    check_aim();
 }
 
 static void usb_timer(btstack_timer_source_t *timer)

@@ -23,6 +23,9 @@
 #define TYPE_P2_ANALOG_Y    8
 #define TYPE_P2_ANALOG_X    9
 #define TYPE_P2_STATUS      10
+#define TYPE_AIM            11
+#define TYPE_AIM_RELEASE    12
+#define TYPE_AIM_OFFSCREEN  13
 
 /* Screen commands */
 #define SCREEN_CMD_ACTIVE 1

@@ -18,6 +18,9 @@
 #include "remotejoy.h"
 #include "remotejoy_minus.h"
 #include "rjm_log.h"
+#if RJM_ENABLE_POPS_AIM
+#include "pops_aim.h"
+#endif
 
 PSP_MODULE_INFO("RemoteJoyMinus", PSP_MODULE_KERNEL, 1, 1);
 
@@ -498,6 +501,9 @@ static void reset_remote_input_state(void)
 	g_virtual_ly = ANALOG_CENTER;
 	g_input_reset_serial++;
 	pspSdkEnableInterrupts(intc);
+#if RJM_ENABLE_POPS_AIM
+	pops_aim_release();
+#endif
 
 	update_system_button_intercepts(0);
 }
@@ -602,6 +608,12 @@ static int special_button_thread(SceSize args, void *argp)
 		}
 		pressed = buttons & ~prev_buttons;
 
+#if RJM_ENABLE_POPS_AIM
+		if(is_pops_context())
+		{
+			pops_aim_find_pad_state();
+		}
+#endif
 		update_virtual_analog(buttons);
 
 #if RJM_ENABLE_POPS_2P
@@ -847,6 +859,9 @@ static void inject_remote_values(SceCtrlData *pad_data, int count, int neg)
 	}
 
 	pspSdkEnableInterrupts(intc);
+#if RJM_ENABLE_POPS_AIM
+	pops_aim_apply();
+#endif
 }
 
 static int ctrl_hook_func(SceCtrlData *pad_data, int count, int type)
@@ -948,6 +963,9 @@ static int ctrl_peek_negative_hook(SceCtrlData *pad_data, int count)
 			pad_data[i].Ly = ly;
 		}
 		g_pops_p2_hits++;
+#if RJM_ENABLE_POPS_AIM
+		pops_aim_apply();
+#endif
 
 		return hwret;
 	}
@@ -1474,6 +1492,17 @@ static void handle_joyevent(const struct JoyEvent *joyevent)
 			}
 			break;
 #endif
+#if RJM_ENABLE_POPS_AIM
+		case TYPE_AIM:
+			pops_aim_set(joyevent->value);
+			break;
+		case TYPE_AIM_RELEASE:
+			pops_aim_release();
+			break;
+		case TYPE_AIM_OFFSCREEN:
+			pops_aim_set_offscreen();
+			break;
+#endif
 		default:
 			break;
 	}
@@ -1693,6 +1722,9 @@ static void cleanup_module(const char *reason)
 #endif
 	restore_ctrl_hooks();
 	rjmLogText("cleanup ctrl hooks restored\n");
+#if RJM_ENABLE_POPS_AIM
+	pops_aim_shutdown();
+#endif
 
 	if(g_intercept_buttons)
 	{

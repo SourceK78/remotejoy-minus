@@ -2,6 +2,7 @@
 #define RJM_CONFIG_STORE_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "config_portal.h"
 #include "config_model.h"
 
@@ -13,6 +14,10 @@ bool rjm_config_store_load_p2_enabled(bool *enabled);
 bool rjm_config_store_save_p2_enabled(bool enabled);
 bool rjm_config_store_load_ds3_mode(bool *enabled);
 bool rjm_config_store_save_ds3_mode(bool enabled);
+bool rjm_config_store_load_gyro_span(uint8_t *span_deg);
+bool rjm_config_store_load_guncon_mask(uint8_t *mask);
+bool rjm_config_store_save_guncon_mask(uint8_t mask);
+bool rjm_config_store_save_gyro_span(uint8_t span_deg);
 bool rjm_config_store_load_wifi_password(char password[64]);
 bool rjm_config_store_save_wifi_password(const char *password);
 bool rjm_config_store_reset_wifi(void);

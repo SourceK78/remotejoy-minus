@@ -8,28 +8,28 @@ else()
 	message(FATAL_ERROR "PICO_SDK_PATH is not set")
 endif()
 
-project(remotejoy_minus_standalone_usbhost C CXX ASM)
+project(remotejoy_minus_rp2040 C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
-add_executable(remotejoy_minus_standalone_usbhost
+add_executable(remotejoy_minus_rp2040
 	standalone_usbhost.c
 )
 
-target_include_directories(remotejoy_minus_standalone_usbhost PRIVATE
+target_include_directories(remotejoy_minus_rp2040 PRIVATE
 	${CMAKE_CURRENT_LIST_DIR}
 )
 
-target_link_libraries(remotejoy_minus_standalone_usbhost
+target_link_libraries(remotejoy_minus_rp2040
 	pico_stdlib
 	hardware_adc
 	tinyusb_host
 	tinyusb_board
 )
 
-pico_enable_stdio_usb(remotejoy_minus_standalone_usbhost 0)
-pico_enable_stdio_uart(remotejoy_minus_standalone_usbhost 1)
+pico_enable_stdio_usb(remotejoy_minus_rp2040 0)
+pico_enable_stdio_uart(remotejoy_minus_rp2040 1)
 
-pico_add_extra_outputs(remotejoy_minus_standalone_usbhost)
+pico_add_extra_outputs(remotejoy_minus_rp2040)

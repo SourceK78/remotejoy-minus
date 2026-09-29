@@ -10,6 +10,7 @@
 #include "pico/cyw43_arch.h"
 #include "btstack_run_loop.h"
 #include "hardware/watchdog.h"
+#include "gyro_aim.h"
 #include "dhcpserver.h"
 #include "dnsserver.h"
 #include "config_store.h"
@@ -30,6 +31,8 @@ static btstack_timer_source_t g_shutdown_timer;
 static bool g_shutdown_pending;
 static bool g_services_initialized;
 static bool g_p2_enabled = true;
+static uint8_t g_gyro_span = RJM_GYRO_SPAN_DEFAULT_DEG;
+static uint8_t g_guncon_mask;   /* bit n = GunCon mode of profile n */
 static bool g_ds3_mode;
 static struct RjmConfig g_mapping;
 static char g_json[4096];
@@ -52,6 +55,7 @@ static const char k_page[] =
 "<h1>RemoteJoy Config</h1><label>Language <select id=langSelect onchange='setLanguage(this.value)'><option value=ja>日本語</option><option value=en>English</option><option value=zh-CN>简体中文</option><option value=zh-TW>繁體中文</option><option value=ko>한국어</option><option value=es>Español</option><option value=fr>Français</option><option value=de>Deutsch</option></select></label><p id=intro></p>"
 "<section><h2>1P</h2><div id=s0>---</div><button id=b0 onclick='act(0)'>---</button></section>"
 "<section><h2>2P</h2><div id=s1>---</div><label><input id=p2Enabled type=checkbox onchange='setP2Enabled()'><span id=p2EnabledLabel></span></label><br><button id=b1 onclick='act(1)'>---</button></section>"
+"<section><h2 id=gyroTitle></h2><div class=deadzone><label id=gyroLabel for=gyroSpan></label><div class=deadzone-control><input id=gyroSpan type=range min=10 max=90 oninput='previewGyro()' onchange='setGyroSpan()'><output id=gyroSpanOut for=gyroSpan></output></div></div><p id=gyroNote></p></section>"
 "<section><h2 id=infoTitle></h2><div><span id=btLabel></span>: <code id=btAddress>---</code></div>" DS3_MODE_CONTROL "</section>"
 "<section><h2 id=wifiTitle></h2><div>SSID: <code>RemoteJoy-Config</code></div><label><span id=passwordLabel></span><input id=wifiPassword type=password minlength=8 maxlength=63 autocomplete=new-password></label><br><label><span id=confirmPasswordLabel></span><input id=wifiPasswordConfirm type=password minlength=8 maxlength=63 autocomplete=new-password></label><br><button id=wifiSaveBtn onclick='saveWifi()'></button><p id=wifiNote></p></section>"
 "<section><h2 id=mapTitle></h2><select id=profile onchange='selectProfile()'></select>"
@@ -71,7 +75,7 @@ static const char k_page[] =
 "<label>G <input id=colorG type=range min=0 max=255 oninput='previewColor()' onchange='setCustomColor()'><output id=colorGOut></output></label>"
 "<label>B <input id=colorB type=range min=0 max=255 oninput='previewColor()' onchange='setCustomColor()'><output id=colorBOut></output></label></div></div></div>"
 "<div class=deadzone><label id=leftLabel for=leftDz></label><div class=deadzone-control><input id=leftDz type=range min=0 max=90 oninput='previewDeadzone()' onchange='setDeadzone()'><output id=leftDzOut for=leftDz></output></div></div>"
-"<div class=deadzone><label id=rightLabel for=rightDz></label><div class=deadzone-control><input id=rightDz type=range min=0 max=90 oninput='previewDeadzone()' onchange='setDeadzone()'><output id=rightDzOut for=rightDz></output></div></div><div id=map></div>"
+"<div class=deadzone><label id=rightLabel for=rightDz></label><div class=deadzone-control><input id=rightDz type=range min=0 max=90 oninput='previewDeadzone()' onchange='setDeadzone()'><output id=rightDzOut for=rightDz></output></div></div><label><input id=gunCon type=checkbox onchange='setGunCon()'><span id=gunConLabel></span></label><p id=gunConNote></p><div id=map></div>"
 "<button id=saveBtn onclick='save()'></button><button id=exportBtn onclick='exportConfig()'></button>"
 "<button id=importBtn onclick=importFile.click()></button><input id=importFile type=file accept=application/json hidden onchange='importConfig(this.files[0])'></section>"
 "<button id=doneBtn onclick='done()'></button><script>let state,cfg,L,inputs,targets;"
@@ -86,10 +90,12 @@ static const char k_page[] =
 "de:{intro:'Slot auswählen und den Controller in den Kopplungsmodus versetzen.',info:'Geräteinformationen',bt:'Bluetooth-Adresse',mapping:'Tastenbelegung',add:'Hinzufügen',del:'Löschen',led:'LED-Farbe',custom:'Benutzerdefiniert',leftDz:'Totzone linker Stick',rightDz:'Totzone rechter Stick',save:'Einstellungen speichern',exp:'Exportieren',imp:'Importieren',done:'Einrichtung beenden',name:'Name',address:'Adresse',status:'Verbindungsstatus',searching:'Suche',connected:'Verbunden',disconnected:'Getrennt',empty:'Nicht registriert',pair:'P koppeln',unpair:'Entkoppeln',confirm:'P?',max:'Maximal 8 Profile',min:'Mindestens ein Profil ist erforderlich',saved:'Gespeichert',bad:'Ungültiges Dateiformat',imported:'Importiert',doneTitle:'Einstellungen gespeichert',doneMsg:'Rückkehr zum Normalmodus.',none:'Keine',rs:'Rechter Stick',up:'Oben',right:'Rechts',down:'Unten',left:'Links'}};"
 "const p2Labels={ja:'2Pを有効にする',en:'Enable 2P','zh-CN':'启用2P','zh-TW':'啟用2P',ko:'2P 활성화',es:'Activar 2P',fr:'Activer 2P',de:'2P aktivieren'};"
 "const ds3Labels={ja:'DualShock 3モード（再起動後に反映）',en:'DualShock 3 mode (applies after restart)','zh-CN':'DualShock 3模式（重启后生效）','zh-TW':'DualShock 3模式（重新啟動後生效）',ko:'DualShock 3 모드 (재시작 후 적용)',es:'Modo DualShock 3 (tras reiniciar)',fr:'Mode DualShock 3 (après redémarrage)',de:'DualShock-3-Modus (nach Neustart)'};"
+"const gunConTexts={ja:['ガンコンモード（ジャイロ照準）','このプロファイルでは、1Pのジャイロ機能を持つコントローラーでPS1のガンコンを操作します。ガンコン対応のPS1ゲームで使用してください。トリガーは○、Aボタンは START、Bボタンは×に割り当てます。'],en:['GunCon mode (gyro aim)','With this profile, a gyro-equipped controller on player 1 drives a PS1 GunCon. Use it with GunCon-compatible PS1 games. Trigger is Circle, A is START, B is Cross.'],'zh-CN':['GunCon模式（陀螺仪瞄准）','使用此配置时，用1P的带陀螺仪功能的手柄操作PS1的GunCon。请在支持GunCon的PS1游戏中使用。扳机为○，A键为START，B键为×。'],'zh-TW':['GunCon模式（陀螺儀瞄準）','使用此設定檔時，以1P具備陀螺儀功能的控制器操作PS1的GunCon。請在支援GunCon的PS1遊戲中使用。扳機為○，A鍵為START，B鍵為×。'],ko:['건콘 모드 (자이로 조준)','이 프로필에서는 1P의 자이로 기능이 있는 컨트롤러로 PS1 건콘을 조작합니다. 건콘을 지원하는 PS1 게임에서 사용하세요. 트리거는 ○, A 버튼은 START, B 버튼은 ×에 할당합니다.'],es:['Modo GunCon (apuntado giroscópico)','Con este perfil, un mando con giroscopio del jugador 1 controla una GunCon de PS1. Úsalo con juegos de PS1 compatibles con GunCon. Gatillo = Círculo, A = START, B = Cruz.'],fr:['Mode GunCon (visée gyroscopique)','Avec ce profil, une manette à gyroscope du joueur 1 pilote une GunCon PS1. À utiliser avec les jeux PS1 compatibles GunCon. Gâchette = Rond, A = START, B = Croix.'],de:['GunCon-Modus (Gyro-Zielen)','Mit diesem Profil steuert ein Controller mit Gyrosensor von Spieler 1 eine PS1-GunCon. Mit GunCon-kompatiblen PS1-Spielen verwenden. Abzug = Kreis, A = START, B = Kreuz.']};"
+"const gyroTexts={ja:['ジャイロ照準','画面の横幅に相当する回転角','コントローラーの向きと照準がずれる場合に調整します。小さいほど少ない動きで照準が大きく動きます。画面が小さい、または遠い場合は小さめに設定してください。スティック押し込み（L3/R3）で照準が中央に戻ります。接続後に1〜2秒ほど静止させると、照準のずれが補正されます。'],en:['Gyro aim','Rotation across the screen width','Adjust when the aim does not follow where the controller points. Smaller values move the aim further per turn; use smaller values for small or distant screens. Press a stick (L3/R3) to recenter. Keep the controller still for 1-2 s after connecting to correct drift.'],'zh-CN':['陀螺仪瞄准','相当于画面宽度的旋转角度','当手柄的朝向与准星不一致时进行调整。数值越小，较小的动作即可使准星大幅移动。画面较小或距离较远时请设置得小一些。按下摇杆（L3/R3）可使准星回到中央。连接后静止1～2秒可校正准星漂移。'],'zh-TW':['陀螺儀瞄準','相當於畫面寬度的旋轉角度','當控制器的朝向與準星不一致時進行調整。數值越小，較小的動作即可使準星大幅移動。畫面較小或距離較遠時請設定得小一些。按下搖桿（L3/R3）可使準星回到中央。連線後靜止1～2秒可校正準星漂移。'],ko:['자이로 조준','화면 너비에 해당하는 회전 각도','컨트롤러 방향과 조준점이 어긋날 때 조정합니다. 값이 작을수록 적은 움직임으로 조준점이 크게 움직입니다. 화면이 작거나 멀 때는 작게 설정하세요. 스틱을 누르면(L3/R3) 조준점이 중앙으로 돌아갑니다. 연결 후 1~2초간 움직이지 않으면 조준점 드리프트가 보정됩니다.'],es:['Apuntado giroscópico','Giro equivalente al ancho de la pantalla','Ajústalo si la mira no sigue hacia donde apunta el mando. Con valores menores la mira se mueve más con menos giro; usa valores menores en pantallas pequeñas o lejanas. Pulsa un stick (L3/R3) para centrar la mira. Deja el mando quieto 1-2 s tras conectarlo para corregir la deriva.'],fr:['Visée gyroscopique','Rotation correspondant à la largeur de l’écran','À régler si le viseur ne suit pas la direction de la manette. Plus la valeur est petite, plus le viseur se déplace pour un faible mouvement ; réduisez-la pour un écran petit ou éloigné. Appuyez sur un stick (L3/R3) pour recentrer le viseur. Laissez la manette immobile 1 à 2 s après la connexion pour corriger la dérive.'],de:['Gyro-Zielen','Drehwinkel für die Bildschirmbreite','Anpassen, wenn das Fadenkreuz nicht der Richtung des Controllers folgt. Kleinere Werte bewegen das Fadenkreuz bei geringerer Drehung weiter; bei kleinen oder weit entfernten Bildschirmen kleiner wählen. Stick drücken (L3/R3), um das Fadenkreuz zu zentrieren. Den Controller nach dem Verbinden 1–2 s ruhig halten, um die Drift zu korrigieren.']};"
 "const wifiTexts={ja:['設定モードWi-Fi','新しいパスワード','パスワード確認','パスワードを保存','次回の設定モードから反映されます。8～63文字で入力してください。','パスワードが一致しません。','パスワードを確認してください。','パスワードを保存しました。'],en:['Setup Wi-Fi','New password','Confirm password','Save password','Applied the next time setup mode starts. Enter 8–63 characters.','Passwords do not match.','Check the password.','Password saved.']};"
 "function setLanguage(code){L=texts[code]||texts.en;langSelect.value=texts[code]?code:'en';localStorage.setItem('rjmLang',langSelect.value);document.documentElement.lang=langSelect.value;"
 "intro.textContent=L.intro;infoTitle.textContent=L.info;btLabel.textContent=L.bt;mapTitle.textContent=L.mapping;addBtn.textContent=L.add;deleteBtn.textContent=L.del;ledLabel.textContent=L.led;customBtn.textContent=L.custom;leftLabel.textContent=L.leftDz;rightLabel.textContent=L.rightDz;p2EnabledLabel.textContent=p2Labels[langSelect.value]||p2Labels.en;if(window.ds3ModeLabel)ds3ModeLabel.textContent=ds3Labels[langSelect.value]||ds3Labels.en;saveBtn.textContent=L.save;exportBtn.textContent=L.exp;importBtn.textContent=L.imp;doneBtn.textContent=L.done;"
-"let w=wifiTexts[langSelect.value]||wifiTexts.en;wifiTitle.textContent=w[0];passwordLabel.textContent=w[1]+' ';confirmPasswordLabel.textContent=w[2]+' ';wifiSaveBtn.textContent=w[3];wifiNote.textContent=w[4];"
+"let gc=gunConTexts[langSelect.value]||gunConTexts.en;gunConLabel.textContent=gc[0];gunConNote.textContent=gc[1];let g=gyroTexts[langSelect.value]||gyroTexts.en;gyroTitle.textContent=g[0];gyroLabel.textContent=g[1];gyroNote.textContent=g[2];let w=wifiTexts[langSelect.value]||wifiTexts.en;wifiTitle.textContent=w[0];passwordLabel.textContent=w[1]+' ';confirmPasswordLabel.textContent=w[2]+' ';wifiSaveBtn.textContent=w[3];wifiNote.textContent=w[4];"
 "inputs=['A / Cross','B / Circle','X / Square','Y / Triangle','D-pad Up','D-pad Right','D-pad Down','D-pad Left','L1','R1','L2','R2','L3','R3','Select / Create','Start / Options','System / PS','Misc','Right stick Up','Right stick Right','Right stick Down','Right stick Left'];"
 "targets=['None','SELECT','START','D-PAD UP','D-PAD RIGHT','D-PAD DOWN','D-PAD LEFT','L','R','TRIANGLE','CIRCLE','CROSS','SQUARE','HOME','VOL+','VOL-','NOTE','COMBO'];if(cfg)render();if(state)renderSlots()}"
 "function initialLanguage(){let s=localStorage.getItem('rjmLang');if(s&&texts[s])return s;let n=(navigator.language||'en').toLowerCase();if(n.startsWith('zh'))return n.includes('tw')||n.includes('hk')?'zh-TW':'zh-CN';for(let x of ['ja','ko','es','fr','de'])if(n.startsWith(x))return x;return'en'}"
@@ -101,8 +107,8 @@ static const char k_page[] =
 "async function load(){state=await(await fetch('/api/status')).json();renderSlots()}"
 "async function loadConfig(){cfg=await(await fetch('/api/config')).json();render()}"
 "async function saveWifi(){let w=wifiTexts[langSelect.value]||wifiTexts.en,p=wifiPassword.value;if(p!=wifiPasswordConfirm.value)return alert(w[5]);try{await post('/api/wifi/'+encodeURIComponent(p));wifiPassword.value=wifiPasswordConfirm.value='';alert(w[7])}catch(e){alert(w[6])}}"
-"function render(){p2Enabled.checked=cfg.p2Enabled!==false;if(window.ds3Mode)ds3Mode.checked=cfg.ds3Mode===true;profile.innerHTML=cfg.profiles.map((x,i)=>'<option value='+i+(i==cfg.active?' selected':'')+'>'+x.name+'</option>').join('');"
-"let x=cfg.profiles[cfg.active];let hex='#'+x.color.map(v=>v.toString(16).padStart(2,'0')).join('');colorButton.style.background=hex;[colorR.value,colorG.value,colorB.value]=x.color;[colorROut.value,colorGOut.value,colorBOut.value]=x.color;document.querySelectorAll('.swatch').forEach(e=>e.classList.toggle('selected',e.dataset.rgb==x.color.join(',')));leftDz.value=x.deadzone[0];rightDz.value=x.deadzone[1];leftDzOut.value=x.deadzone[0]+'%';rightDzOut.value=x.deadzone[1]+'%';"
+"function render(){p2Enabled.checked=cfg.p2Enabled!==false;gyroSpan.value=cfg.gyroSpan||40;previewGyro();if(window.ds3Mode)ds3Mode.checked=cfg.ds3Mode===true;profile.innerHTML=cfg.profiles.map((x,i)=>'<option value='+i+(i==cfg.active?' selected':'')+'>'+x.name+'</option>').join('');"
+"let x=cfg.profiles[cfg.active];let hex='#'+x.color.map(v=>v.toString(16).padStart(2,'0')).join('');colorButton.style.background=hex;[colorR.value,colorG.value,colorB.value]=x.color;[colorROut.value,colorGOut.value,colorBOut.value]=x.color;document.querySelectorAll('.swatch').forEach(e=>e.classList.toggle('selected',e.dataset.rgb==x.color.join(',')));leftDz.value=x.deadzone[0];rightDz.value=x.deadzone[1];leftDzOut.value=x.deadzone[0]+'%';rightDzOut.value=x.deadzone[1]+'%';gunCon.checked=x.gunCon===true;"
 "map.innerHTML='<table>'+inputs.map((n,i)=>'<tr><td>'+n+'</td><td><select onchange=bind('+i+',this.value)>'+targets.map((t,j)=>'<option value='+j+(x.outputs[i]==j?' selected':'')+'>'+t+'</option>').join('')+'</select></td></tr>').join('')+'</table>'}"
 "async function selectProfile(){await post('/api/profile/select/'+profile.value);await loadConfig()}"
 "async function addProfile(){try{await post('/api/profile/add');await loadConfig()}catch(e){alert(L.max)}}"
@@ -115,16 +121,19 @@ static const char k_page[] =
 "async function setCustomColor(){previewColor();await setRgb(colorR.value,colorG.value,colorB.value)}"
 "function previewDeadzone(){leftDzOut.value=leftDz.value+'%';rightDzOut.value=rightDz.value+'%'}"
 "async function setDeadzone(){await post('/api/profile/deadzone/'+cfg.active+'/'+leftDz.value+'/'+rightDz.value);cfg.profiles[cfg.active].deadzone=[+leftDz.value,+rightDz.value];render()}"
+"async function setGunCon(){await post('/api/profile/guncon/'+cfg.active+'/'+(gunCon.checked?1:0));cfg.profiles[cfg.active].gunCon=gunCon.checked}"
 "async function bind(i,v){await post('/api/profile/bind/'+cfg.active+'/'+i+'/'+v);cfg.profiles[cfg.active].outputs[i]=+v}"
 "async function setP2Enabled(){await post('/api/p2/enabled/'+(p2Enabled.checked?1:0));cfg.p2Enabled=p2Enabled.checked}"
+"function previewGyro(){gyroSpanOut.value=gyroSpan.value+'°'}"
+"async function setGyroSpan(){await post('/api/gyro/span/'+gyroSpan.value);cfg.gyroSpan=+gyroSpan.value}"
 "async function setDs3Mode(){await post('/api/ds3/enabled/'+(ds3Mode.checked?1:0));cfg.ds3Mode=ds3Mode.checked}"
 "async function save(){await post('/api/config/save');alert(L.saved)}"
 "function exportConfig(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(cfg,null,2)],{type:'application/json'}));a.download='remotejoy-mapping.json';a.click();URL.revokeObjectURL(a.href)}"
 "async function importConfig(f){try{let c=JSON.parse(await f.text());if(c.version!=2||!Array.isArray(c.profiles)||!c.profiles.length||c.profiles.length>8)throw 0;"
 "for(let x of c.profiles)if(!Array.isArray(x.color)||x.color.length!=3||!Array.isArray(x.deadzone)||x.deadzone.length!=2||!Array.isArray(x.outputs)||x.outputs.length!=inputs.length||x.color.some(v=>v<0||v>255)||x.deadzone.some(v=>v<0||v>90)||x.outputs.some(v=>v<0||v>=targets.length))throw 0;"
 "await post('/api/profile/reset');for(let i=1;i<c.profiles.length;i++)await post('/api/profile/add');"
-"for(let i=0;i<c.profiles.length;i++){let x=c.profiles[i];await post('/api/profile/color/'+i+'/'+x.color.join('/'));await post('/api/profile/deadzone/'+i+'/'+x.deadzone.join('/'));for(let t=0;t<inputs.length;t++)await post('/api/profile/bind/'+i+'/'+t+'/'+x.outputs[t])}"
-"await post('/api/profile/select/'+Math.min(c.active||0,c.profiles.length-1));await post('/api/p2/enabled/'+(c.p2Enabled===false?0:1));await post('/api/ds3/enabled/'+(c.ds3Mode===true?1:0));await post('/api/config/save');await loadConfig();alert(L.imported)}catch(e){alert(L.bad)}}"
+"for(let i=0;i<c.profiles.length;i++){let x=c.profiles[i];await post('/api/profile/color/'+i+'/'+x.color.join('/'));await post('/api/profile/deadzone/'+i+'/'+x.deadzone.join('/'));for(let t=0;t<inputs.length;t++)await post('/api/profile/bind/'+i+'/'+t+'/'+x.outputs[t]);await post('/api/profile/guncon/'+i+'/'+(x.gunCon===true?1:0))}"
+"await post('/api/profile/select/'+Math.min(c.active||0,c.profiles.length-1));await post('/api/p2/enabled/'+(c.p2Enabled===false?0:1));await post('/api/ds3/enabled/'+(c.ds3Mode===true?1:0));if(c.gyroSpan>=10&&c.gyroSpan<=90)await post('/api/gyro/span/'+c.gyroSpan);await post('/api/config/save');await loadConfig();alert(L.imported)}catch(e){alert(L.bad)}}"
 "async function done(){await post('/api/done');document.body.innerHTML='<h1>'+L.doneTitle+'</h1><p>'+L.doneMsg+'</p>'}"
 "setLanguage(initialLanguage());load();loadConfig();setInterval(load,1000)</script></html>";
 
@@ -254,14 +263,16 @@ static void make_config(char *out, size_t size)
 {
     size_t used = 0;
 #define APPEND(...) do { if (used < size) { int n = snprintf(out + used, size - used, __VA_ARGS__); if (n > 0) used += (size_t)n; } } while (0)
-    APPEND("{\"version\":%u,\"active\":%u,\"p2Enabled\":%s,\"ds3Mode\":%s,\"profiles\":[",
+    APPEND("{\"version\":%u,\"active\":%u,\"p2Enabled\":%s,\"ds3Mode\":%s,\"gyroSpan\":%u,\"profiles\":[",
            (unsigned)g_mapping.version, (unsigned)g_mapping.active_profile,
-           g_p2_enabled ? "true" : "false", g_ds3_mode ? "true" : "false");
+           g_p2_enabled ? "true" : "false", g_ds3_mode ? "true" : "false",
+           (unsigned)g_gyro_span);
     for (uint8_t p = 0; p < g_mapping.profile_count; ++p) {
         const struct RjmMappingProfile *profile = &g_mapping.profile[p];
-        APPEND("%s{\"name\":\"%.23s\",\"color\":[%u,%u,%u],\"deadzone\":[%u,%u],\"outputs\":[",
+        APPEND("%s{\"name\":\"%.23s\",\"color\":[%u,%u,%u],\"deadzone\":[%u,%u],\"gunCon\":%s,\"outputs\":[",
                p ? "," : "", profile->name, profile->color.red, profile->color.green, profile->color.blue,
-               profile->left_deadzone_percent, profile->right_deadzone_percent);
+               profile->left_deadzone_percent, profile->right_deadzone_percent,
+               (g_guncon_mask & (1u << p)) ? "true" : "false");
         for (uint8_t b = 0; b < RJM_MAPPABLE_INPUT_COUNT; ++b)
             APPEND("%s%u", b ? "," : "", profile->output[b]);
         APPEND("]}");
@@ -273,6 +284,7 @@ static void make_config(char *out, size_t size)
 static void reset_mapping(void)
 {
     rjm_config_set_defaults(&g_mapping);
+    g_guncon_mask = 0;
 }
 
 static bool add_profile(void)
@@ -280,6 +292,8 @@ static bool add_profile(void)
     if (g_mapping.profile_count >= RJM_PROFILE_MAX) return false;
     uint8_t index = g_mapping.profile_count++;
     g_mapping.profile[index] = g_mapping.profile[g_mapping.active_profile];
+    if (g_guncon_mask & (1u << g_mapping.active_profile)) g_guncon_mask |= (uint8_t)(1u << index);
+    else g_guncon_mask &= (uint8_t)~(1u << index);
     snprintf(g_mapping.profile[index].name, sizeof(g_mapping.profile[index].name),
              "Profile %u", (unsigned)(index + 1));
     g_mapping.active_profile = index;
@@ -291,6 +305,11 @@ static bool delete_profile(unsigned index)
     if (g_mapping.profile_count <= 1 || index >= g_mapping.profile_count) return false;
     memmove(&g_mapping.profile[index], &g_mapping.profile[index + 1],
             (g_mapping.profile_count - index - 1) * sizeof(g_mapping.profile[0]));
+    {
+        uint8_t low = (uint8_t)(g_guncon_mask & ((1u << index) - 1u));
+        uint8_t high = (uint8_t)((g_guncon_mask >> (index + 1)) << index);
+        g_guncon_mask = low | high;
+    }
     --g_mapping.profile_count;
     if (g_mapping.active_profile >= g_mapping.profile_count)
         g_mapping.active_profile = g_mapping.profile_count - 1;
@@ -360,6 +379,7 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
         rjm_config_store_save_mapping(&g_mapping);
         rjm_config_store_save_p2_enabled(g_p2_enabled);
         rjm_config_store_save_ds3_mode(g_ds3_mode);
+        rjm_config_store_save_guncon_mask(g_guncon_mask);
         send_response(pcb, "202 Accepted", "text/plain", "", 0);
         schedule_portal_shutdown();
     } else if (strncmp(request, "GET /api/config ", 16) == 0) {
@@ -368,7 +388,8 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
     } else if (strncmp(request, "POST /api/config/save ", 22) == 0) {
         bool ok = rjm_config_store_save_mapping(&g_mapping) &&
                   rjm_config_store_save_p2_enabled(g_p2_enabled) &&
-                  rjm_config_store_save_ds3_mode(g_ds3_mode);
+                  rjm_config_store_save_ds3_mode(g_ds3_mode) &&
+                  rjm_config_store_save_guncon_mask(g_guncon_mask);
         send_response(pcb, ok ? "204 No Content" : "500 Internal Server Error",
                       "text/plain", "", 0);
     } else if (sscanf(request, "POST /api/p2/enabled/%u ", &a) == 1) {
@@ -376,6 +397,13 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
         if (ok) {
             g_p2_enabled = a != 0;
             rjm_controller_update_scan_state();
+        }
+        send_response(pcb, ok ? "204 No Content" : "400 Bad Request", "text/plain", "", 0);
+    } else if (sscanf(request, "POST /api/gyro/span/%u ", &a) == 1) {
+        bool ok = a >= RJM_GYRO_SPAN_MIN_DEG && a <= RJM_GYRO_SPAN_MAX_DEG;
+        if (ok) {
+            g_gyro_span = (uint8_t)a;
+            ok = rjm_config_store_save_gyro_span(g_gyro_span);
         }
         send_response(pcb, ok ? "204 No Content" : "400 Bad Request", "text/plain", "", 0);
     } else if (sscanf(request, "POST /api/ds3/enabled/%u ", &a) == 1) {
@@ -417,6 +445,13 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
         if (ok) {
             g_mapping.profile[a].left_deadzone_percent = (uint8_t)b;
             g_mapping.profile[a].right_deadzone_percent = (uint8_t)c;
+        }
+        send_response(pcb, ok ? "204 No Content" : "400 Bad Request", "text/plain", "", 0);
+    } else if (sscanf(request, "POST /api/profile/guncon/%u/%u ", &a, &b) == 2) {
+        bool ok = a < g_mapping.profile_count && b <= 1;
+        if (ok) {
+            if (b) g_guncon_mask |= (uint8_t)(1u << a);
+            else g_guncon_mask &= (uint8_t)~(1u << a);
         }
         send_response(pcb, ok ? "204 No Content" : "400 Bad Request", "text/plain", "", 0);
     } else if (sscanf(request, "POST /api/profile/bind/%u/%u/%u ", &a, &b, &c) == 3) {
@@ -588,4 +623,16 @@ bool rjm_portal_p2_enabled(void) { return g_p2_enabled; }
 
 void rjm_portal_restore_p2_enabled(bool enabled) { g_p2_enabled = enabled; }
 bool rjm_portal_ds3_mode(void) { return g_ds3_mode; }
+uint8_t rjm_portal_gyro_span(void) { return g_gyro_span; }
+bool rjm_portal_guncon_enabled(void)
+{
+    return rjm_config_validate(&g_mapping) &&
+           (g_guncon_mask & (1u << g_mapping.active_profile)) != 0;
+}
+void rjm_portal_restore_guncon_mask(uint8_t mask) { g_guncon_mask = mask; }
+void rjm_portal_restore_gyro_span(uint8_t span_deg)
+{
+    g_gyro_span = (span_deg >= RJM_GYRO_SPAN_MIN_DEG && span_deg <= RJM_GYRO_SPAN_MAX_DEG)
+                      ? span_deg : RJM_GYRO_SPAN_DEFAULT_DEG;
+}
 void rjm_portal_restore_ds3_mode(bool enabled) { g_ds3_mode = enabled; }

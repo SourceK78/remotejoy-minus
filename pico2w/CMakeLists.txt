@@ -24,6 +24,7 @@ add_executable(remotejoy_minus_pico2w
     config_portal.c
     config_store.c
     runtime_ui.c
+    gyro_aim.c
     config_model.c
     psp_host.c
     third_party/pico-examples/access_point/dhcpserver.c

@@ -21,6 +21,8 @@ a PSP over USB. It is protocol-compatible with
 - Browser JSON import/export without Bluetooth addresses or private bond keys.
 - Wi-Fi configuration portal with eight UI languages.
 - remotejoy-minus USB host handshake and 1P/2P event delivery.
+- Per-profile **GunCon mode**: gyro aiming with a gyro-equipped controller
+  for GunCon-compatible PS1 games under POPS.
 
 ## Required hardware
 
@@ -103,6 +105,8 @@ The portal provides:
 - Mapping profile add, delete, select, and save.
 - PSP-button assignment for controller buttons and right-stick directions.
 - Left/right stick dead-zone sliders.
+- A per-profile **GunCon mode (gyro aim)** checkbox.
+- A **Gyro aim** slider for the rotation that sweeps the screen width.
 - Eight RGB presets plus custom R/G/B sliders; custom black means LED off.
 - Mapping JSON export/import.
 - The Pico Bluetooth address needed for DualShock 3 setup.
@@ -128,8 +132,9 @@ with a mapped `COMBO` input advances to the next profile; `START` is suppressed
 during that switching chord.
 
 Bluetooth bond keys and controller slot identities are stored independently
-from mapping profiles. Exported JSON contains mapping data and the 2P-enabled
-setting, but not Bluetooth bond keys or controller identities.
+from mapping profiles. Exported JSON contains mapping data, the 2P-enabled
+setting, the gyro aim range, and each profile's GunCon mode, but not Bluetooth
+bond keys or controller identities.
 
 The PSP plugin reports whether it is running in POPS through an optional,
 backwards-compatible HostFS extension. In XMB and PSP games, only player 1 is
@@ -192,6 +197,44 @@ reporting. For example, on the M30 Bluetooth controller, hold
 succeeds. Other 8BitDo models use different button combinations, so consult
 the corresponding 8BitDo manual rather than assuming the M30 shortcut applies.
 
+## GunCon mode (gyro aim)
+
+GunCon mode lets a gyro-equipped controller aim like a light gun in
+GunCon-compatible PS1 games under POPS. Supported gyro controllers are
+currently the DualShock 4 and DualSense.
+
+Requirements:
+
+- The PSP plugin built with `RJM_ENABLE_POPS_AIM=1` (see the
+  [top-level README](../README.md#pops-guncon-emulation)).
+- The active mapping profile has **GunCon mode (gyro aim)** enabled.
+
+Usage:
+
+1. In the Web configuration, enable **GunCon mode (gyro aim)** on a profile and
+   map the controller button used as the trigger to `CIRCLE`. On the GunCon,
+   the trigger is Circle, A is START, and B is Cross.
+2. Save the settings or finish setup.
+3. After the controller connects, keep it still for 1-2 seconds so the gyro
+   offset is calibrated.
+4. Hold the controller flat with the buttons up and point it at the screen.
+   Press a stick (L3 or R3) while pointing at the screen centre to recenter the
+   aim.
+
+Behavior:
+
+- Only player 1 aims. The aim is sent only inside POPS and only while the active
+  profile has GunCon mode enabled, so switching profiles with `START` +
+  `COMBO` switches the game between the GunCon and the normal pad.
+- Turning the controller past a screen edge reports "off screen" to the game.
+  The position beyond the edge is remembered, so turning back lands where the
+  controller points again.
+- **Gyro aim** sets the rotation, in degrees, that sweeps the screen width.
+  Smaller values move the aim further per turn; use smaller values for small
+  or distant screens.
+- While the controller is still, the gyro offset keeps being corrected slowly.
+  If the aim drifts during long play, recenter with L3/R3.
+
 ## Input and USB behavior
 
 joypad-os reports are normalized, mapped, and assigned to a player by the
@@ -202,7 +245,7 @@ updated every 10 ms with the configured dead zones.
 TinyUSB runs in host mode, discovers the PSP vendor interface (`ff/01/ff`),
 opens the three USBHostFS-compatible bulk endpoints, completes the HostFS hello
 handshake, and sends the original remotejoy-minus event layout plus the optional
-P2 event types.
+P2 and GunCon aim event types. Aim events are sent as soon as the aim changes.
 
 The native USB port is reserved for PSP host operation, so USB serial logging
 is disabled in this build.
@@ -259,6 +302,17 @@ pico2w/build/remotejoy_minus_pico2w.uf2
   `SELECT + D-pad Up` for five seconds.
 - **DS3 does not appear in a normal scan:** program the Pico Bluetooth address
   into the DS3 first; normal Bluetooth pairing is not implemented by DS3.
+- **The PS1 game does not see a GunCon:** check that the PSP plugin was built
+  with `RJM_ENABLE_POPS_AIM=1`, the active profile has GunCon mode enabled, and
+  player 1 uses a gyro-equipped controller.
+- **The gyro aim drifts:** keep the controller still for 1-2 seconds after
+  connecting, and recenter with L3/R3 when needed.
+- **Player 1 input lags, or gyro aim barely moves, while a registered 2P
+  controller is off:** in POPS with **Enable 2P** selected, the Pico keeps
+  scanning for the paired but disconnected 2P controller. The scanning takes
+  radio time from player 1, so its reports arrive late and in bursts, which
+  also stalls gyro aim. If player 2 is not used, unpair the 2P slot or clear
+  **Enable 2P** in the Web configuration.
 
 ## Dependencies and licenses
 

@@ -9,6 +9,10 @@ RJM_REBOOT_LOAD_POPS ?= 1
 RJM_ENABLE_POPS_2P ?= 0
 RJM_POPS_GATE_SLOT2_RETURN ?= 4
 RJM_POPS_GATE_FORCE_SLOT2_ASM ?= 0
+# POPS GunCon emulation: while the controller firmware sends gyro aim, POPS's
+# controller port 1 is presented as a GunCon (see pops_aim.c). Disabled by
+# default.
+RJM_ENABLE_POPS_AIM ?= 0
 
 INCDIR =
 CFLAGS = -Os -mno-gpopt -Wall -fno-builtin-printf
@@ -25,9 +29,21 @@ ifneq ($(RJM_POPS_GATE_FORCE_SLOT2_ASM),0)
 CFLAGS += -DRJM_POPS_GATE_FORCE_SLOT2_ASM=1
 endif
 endif
+ifneq ($(RJM_ENABLE_POPS_AIM),0)
+CFLAGS += -DRJM_ENABLE_POPS_AIM=1
+OBJS += pops_aim.o
+endif
+# Where POPS draws the PS1 picture, for the GunCon crosshair overlay.
+# Defaults match POPS's "Original" screen mode (320x240 at 80,16). On TV
+# out the picture is assumed scaled to fit; a measured rectangle can be set
+# with RJM_POPS_AIM_SCREEN="RJM_POPS_AIM_TV_X=.. RJM_POPS_AIM_TV_Y=.. ...".
+ifneq ($(RJM_POPS_AIM_SCREEN),)
+CFLAGS += $(foreach v,$(RJM_POPS_AIM_SCREEN),-D$(v))
+endif
 CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
 ASFLAGS = $(CFLAGS)
 LIBDIR =
+EXTRA_CLEAN = pops_aim.o
 LIBS = -lpspusb_driver -lpspusbbus_driver -lpspctrl_driver -lpsppower_driver -lpspsystemctrl_kernel
 
 PSPSDK=$(shell psp-config --pspsdk-path)

@@ -36,6 +36,27 @@ make RJM_ENABLE_POPS_2P=1
 See [POPS_2P.md](./POPS_2P.md) for the POPS controller-assignment behavior and
 known compatibility details.
 
+To enable POPS GunCon emulation for gyro aiming from the Pico 2 W firmware
+(see [POPS GunCon emulation](#pops-guncon-emulation)):
+
+```sh
+make clean
+make RJM_ENABLE_POPS_AIM=1
+```
+
+It can be combined with `RJM_ENABLE_POPS_2P=1`. The on-screen crosshair assumes
+POPS's "Original" screen mode, where the 320x240 PS1 picture sits at 80,16 on
+the 480x272 LCD. For another placement, pass the picture rectangle:
+
+```sh
+make RJM_ENABLE_POPS_AIM=1 \
+  RJM_POPS_AIM_SCREEN="RJM_POPS_AIM_SCREEN_X=112 RJM_POPS_AIM_SCREEN_W=256"
+```
+
+On TV out the picture is assumed to be scaled uniformly to fit the output and
+centred. A measured TV rectangle can be given with `RJM_POPS_AIM_TV_X`,
+`RJM_POPS_AIM_TV_Y`, `RJM_POPS_AIM_TV_W`, and `RJM_POPS_AIM_TV_H` in the same way.
+
 For a diagnostic plugin that writes `ms0:/rjm_standalone.log`:
 
 ```sh
@@ -80,7 +101,7 @@ The wired PS1/PS2 firmware is in [`rp2040-zero/`](./rp2040-zero/README.md).
 Its UF2 output is:
 
 ```text
-rp2040-zero/build/remotejoy_minus_standalone_usbhost.uf2
+rp2040-zero/build/remotejoy_minus_rp2040.uf2
 ```
 
 ## POPS 2P overview
@@ -97,6 +118,30 @@ described in [POPS_2P.md](./POPS_2P.md).
 The wired firmware has been tested with the SCPH-1070 PS1 multitap. The
 SCPH-10090 PS2 multitap did not respond to its controller-port-only bitbang
 wiring.
+
+## POPS GunCon emulation
+
+With `RJM_ENABLE_POPS_AIM=1`, the plugin can present POPS controller port 1 to
+the PS1 game as a Namco GunCon, so GunCon-compatible PS1 games can be played
+with a gyro-equipped controller. No per-game patch is needed.
+
+- The Pico 2 W firmware sends an absolute aim position while the active mapping
+  profile has **GunCon mode** enabled (see
+  [pico2w/README.md](./pico2w/README.md)). Firmware that sends no aim, such as
+  the RP2040-Zero firmware, leaves port 1 as the normal digital pad.
+- POPS emulates the PS1 controller protocol with a per-port state block in PSP
+  scratchpad RAM. While aim data arrives, the plugin sets port 1's controller
+  ID to the GunCon (`0x63`) and supplies the gun X/Y coordinates. When aiming
+  stops, the digital pad (`0x41`) is restored. The block is only modified when
+  its contents match the expected POPS layout.
+- Off-screen aim is reported as the GunCon "no light" value (X=01h, Y=0Ah).
+- Buttons come from the normal remotejoy-minus input. On the GunCon, the
+  trigger is Circle, A is START, and B is Cross.
+- GunCon games hide their own cursor, so the plugin draws a small crosshair on
+  the PSP screen while aiming on screen.
+- Only player 1 is converted. In POPS 2P, player 2 remains a digital pad.
+
+Tested with Time Crisis and Biohazard Gun Survivor.
 
 ## Acknowledgments
 
