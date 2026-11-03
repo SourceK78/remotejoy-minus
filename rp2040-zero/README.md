@@ -188,6 +188,41 @@ To align with the remapping, we recommend configuring the key settings for *PSP 
 <img src="./assets/popn-keyconfig-7.png" />
 <img src="./assets/popn-keyconfig-5.png" />
 
+Namco GunCon
+------------
+
+A Namco GunCon (NPC-103) connected to the player 1 PS2 controller connector is
+detected by its controller ID (0x63). Its X/Y coordinates are forwarded
+unchanged to the PSP, and remotejoy-minus.prx built with RJM_ENABLE_POPS_AIM=1
+presents POPS controller port 1 to the PS1 game as a GunCon. When the gun is
+removed, port 1 returns to the normal digital pad.
+
+- The gun's buttons are sent as normal input: the trigger is Circle, A is
+  START, and B is Cross.
+- The GunCon measures its position from a CRT's scanning beam. It needs a CRT
+  and the gun's video connection; on an LCD it only reports "off screen"
+  (X=01h, Y=0Ah).
+- The PSP plugin draws a crosshair at the reported position, using typical
+  GunCon edge values to place it on screen. Hold A + B for two seconds to show
+  or hide it.
+- POPS shows the PS1 picture in only part of the display, depending on its
+  HOME-menu screen size: on the PSP LCD 320x240 (Original), 360x270
+  (Normal), 480x360 cropped (Zoom) or 480x272 (Full); on TV out 640x480 of
+  672x480. A gun that reports its position across the whole screen, such as
+  a GunCon 3 adapter, is corrected by the PSP plugin so that the edges of the
+  PS1 picture map to the GunCon edges: each axis is stretched about the
+  centre of the GunCon range (X 269, Y 136) by the picture's share of the
+  display (compressed for Zoom, where the picture overflows the screen). On
+  the LCD the plugin reads the selected screen size. On TV out the picture
+  fills the height, so only X can change: with the TV screen size set to 4:3
+  the picture spans the whole width and nothing is corrected, with 16:9 X is
+  corrected for the pillarbox. "Off screen" is passed through unchanged.
+- Over dark parts of the picture the gun sees no light. A shot there makes
+  the PSP plugin flash the screen until the gun reports a position, and only
+  then passes the trigger to the game (see "POPS GunCon emulation" in the
+  [main README](../README.md)). The crosshair cannot follow over dark parts.
+- Only player 1 is supported. A GunCon behind a multitap is not forwarded.
+
 GPIO/ADC Test Wiring
 --------------------
 

@@ -612,6 +612,7 @@ static int special_button_thread(SceSize args, void *argp)
 		if(is_pops_context())
 		{
 			pops_aim_find_pad_state();
+			pops_aim_buttons(get_current_buttons(), SPECIAL_POLL_MS);
 		}
 #endif
 		update_virtual_analog(buttons);
@@ -829,6 +830,9 @@ static void inject_remote_values(SceCtrlData *pad_data, int count, int neg)
 	{
 		buttons &= ~calc_mask();
 	}
+#if RJM_ENABLE_POPS_AIM
+	buttons = pops_aim_filter_buttons(buttons);
+#endif
 	calc_virtual_analog(raw_buttons, &virtual_active, &lx, &ly);
 	if(virtual_active)
 	{
@@ -1501,6 +1505,9 @@ static void handle_joyevent(const struct JoyEvent *joyevent)
 			break;
 		case TYPE_AIM_OFFSCREEN:
 			pops_aim_set_offscreen();
+			break;
+		case TYPE_AIM_RAW:
+			pops_aim_set_raw(joyevent->value);
 			break;
 #endif
 		default:

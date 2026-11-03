@@ -36,17 +36,20 @@ make RJM_ENABLE_POPS_2P=1
 See [POPS_2P.md](./POPS_2P.md) for the POPS controller-assignment behavior and
 known compatibility details.
 
-To enable POPS GunCon emulation for gyro aiming from the Pico 2 W firmware
-(see [POPS GunCon emulation](#pops-guncon-emulation)):
+To enable POPS GunCon emulation, for gyro aiming from the Pico 2 W firmware or
+a real GunCon on the RP2040-Zero firmware (see
+[POPS GunCon emulation](#pops-guncon-emulation)):
 
 ```sh
 make clean
 make RJM_ENABLE_POPS_AIM=1
 ```
 
-It can be combined with `RJM_ENABLE_POPS_2P=1`. The on-screen crosshair assumes
-POPS's "Original" screen mode, where the 320x240 PS1 picture sits at 80,16 on
-the 480x272 LCD. For another placement, pass the picture rectangle:
+It can be combined with `RJM_ENABLE_POPS_2P=1`. On the PSP LCD the plugin reads
+POPS's HOME-menu screen size (Original, Normal, Zoom, Full) and places the
+crosshair and the GunCon correction for the selected mode automatically. The
+rectangle below is only a fallback until POPS is found; its default is the
+"Original" placement (320x240 at 80,16 on the 480x272 LCD):
 
 ```sh
 make RJM_ENABLE_POPS_AIM=1 \
@@ -54,8 +57,12 @@ make RJM_ENABLE_POPS_AIM=1 \
 ```
 
 On TV out the picture is assumed to be scaled uniformly to fit the output and
-centred. A measured TV rectangle can be given with `RJM_POPS_AIM_TV_X`,
-`RJM_POPS_AIM_TV_Y`, `RJM_POPS_AIM_TV_W`, and `RJM_POPS_AIM_TV_H` in the same way.
+centred. The TV screen size (XMB: Connected Display Settings > Screen Size) is
+read from the system registry: with 4:3 the picture spans the whole width,
+with 16:9 it is pillarboxed. Add `RJM_POPS_AIM_TV_4_3=1` (or `=0`) to
+`RJM_POPS_AIM_SCREEN` to force it. A measured TV rectangle can be given with
+`RJM_POPS_AIM_TV_X`, `RJM_POPS_AIM_TV_Y`, `RJM_POPS_AIM_TV_W`, and
+`RJM_POPS_AIM_TV_H` in the same way.
 
 For a diagnostic plugin that writes `ms0:/rjm_standalone.log`:
 
@@ -127,8 +134,11 @@ with a gyro-equipped controller. No per-game patch is needed.
 
 - The Pico 2 W firmware sends an absolute aim position while the active mapping
   profile has **GunCon mode** enabled (see
-  [pico2w/README.md](./pico2w/README.md)). Firmware that sends no aim, such as
-  the RP2040-Zero firmware, leaves port 1 as the normal digital pad.
+  [pico2w/README.md](./pico2w/README.md)).
+- The RP2040-Zero firmware forwards a real Namco GunCon connected to its
+  player 1 controller connector, passing the gun's own X/Y coordinates
+  unchanged (see [rp2040-zero/README.md](./rp2040-zero/README.md)).
+- Without aim data, port 1 stays the normal digital pad.
 - POPS emulates the PS1 controller protocol with a per-port state block in PSP
   scratchpad RAM. While aim data arrives, the plugin sets port 1's controller
   ID to the GunCon (`0x63`) and supplies the gun X/Y coordinates. When aiming
@@ -138,7 +148,21 @@ with a gyro-equipped controller. No per-game patch is needed.
 - Buttons come from the normal remotejoy-minus input. On the GunCon, the
   trigger is Circle, A is START, and B is Cross.
 - GunCon games hide their own cursor, so the plugin draws a small crosshair on
-  the PSP screen while aiming on screen.
+  the PSP screen while aiming on screen. Holding START + Cross (GunCon A + B)
+  for two seconds shows or hides it. With a real gun the crosshair can only
+  follow over lit parts of the picture: the gun reports no position over dark
+  parts, so there the crosshair stops or disappears.
+- A real gun cannot see where it points over a dark part of the picture. When
+  its trigger is pulled there, the plugin holds the trigger back, inverts the
+  colours of the shown frame so that the dark parts turn bright, and passes
+  the trigger on together with the position the gun then reports. If no light
+  comes within 100 ms, the gun points off screen and the shot goes through as
+  "no light" (reload). For 250 ms after each shot, "no light" is replaced by
+  the shot position, so games that flash the screen on a shot (such as Time
+  Crisis) still read where the shot went. Build with `RJM_POPS_AIM_FLASH=0`
+  passed in `RJM_POPS_AIM_SCREEN` to turn the flash off;
+  `RJM_POPS_AIM_FLASH_WAIT_MS` and `RJM_POPS_AIM_SHOT_HOLD_MS` set the two
+  times.
 - Only player 1 is converted. In POPS 2P, player 2 remains a digital pad.
 
 Tested with Time Crisis and Biohazard Gun Survivor.

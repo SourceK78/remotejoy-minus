@@ -62,6 +62,13 @@
 #define PS2_RESP_RIGHT_Y 6
 #define PS2_RESP_LEFT_X 7
 #define PS2_RESP_LEFT_Y 8
+/* Namco GunCon: ID 0x63, then buttons and X/Y (little endian) where an
+ * analog pad has its sticks. */
+#define PS2_MODE_GUNCON 0x63
+#define PS2_RESP_GUN_X_LO 5
+#define PS2_RESP_GUN_X_HI 6
+#define PS2_RESP_GUN_Y_LO 7
+#define PS2_RESP_GUN_Y_HI 8
 #define PS2_ANALOG_CENTER 128
 #define PS2_STICK_LOW 80
 #define PS2_STICK_HIGH 176
@@ -155,6 +162,30 @@ static uint8_t g_last_x = 128;
 static uint8_t g_last_y = 128;
 static int g_p2_present;
 static int g_last_p2_present = -1;
+/* Player 1 GunCon: its position is forwarded unchanged as RJM_TYPE_AIM_RAW,
+ * which the PSP plugin presents to POPS games as a GunCon. */
+static int g_gun_present;
+static uint32_t g_gun_xy;
+static int g_last_gun_present;
+static uint32_t g_last_gun_xy;
+/* The gun clears its position every frame and reports "no light" until the
+ * beam passes the aim point, so a poll not synced to the TV often lands
+ * before that (more often the lower the aim). A "no light" reading only
+ * counts once no lit reading came for about two frames; until then the
+ * last lit position is kept. Pointing off screen still shows after that. */
+#define GUN_X_NO_LIGHT 0x0001u
+#define GUN_Y_NO_LIGHT 0x000Au
+#define GUN_NO_LIGHT_DEBOUNCE_MS 40u
+static int g_gun_lit_seen;
+static uint32_t g_gun_lit_xy;
+static uint32_t g_gun_lit_ms;
+/* The lit position only stays latched from the moment the beam passes the
+ * aim point until the gun clears it for the next frame, which near the bottom
+ * of the screen is only about 1.5 ms. While a gun is connected its position is
+ * therefore also read on its own every GUN_FAST_POLL_US between the full
+ * polls, so a new latch reaches the PSP within a couple of ms. */
+#define GUN_FAST_POLL_US 2000u
+static uint32_t g_last_gun_poll_us;
 static struct ControllerState g_p2_state;
 static uint32_t g_last_p2_buttons;
 static uint8_t g_last_p2_x = 128;
@@ -330,6 +361,11 @@ static void clear_endpoints(void)
 	g_p2_present = 0;
 	g_last_p2_present = -1;
 	clear_controller_state_value(&g_p2_state);
+	g_gun_present = 0;
+	g_last_gun_present = 0;
+	g_last_gun_xy = 0;
+	g_gun_lit_seen = 0;
+	g_last_gun_poll_us = 0;
 	g_last_p2_buttons = 0;
 	g_last_p2_x = 128;
 	g_last_p2_y = 128;
@@ -357,6 +393,11 @@ static void reset_input_diff_state(void)
 	g_p2_present = 0;
 	g_last_p2_present = -1;
 	clear_controller_state_value(&g_p2_state);
+	g_gun_present = 0;
+	g_last_gun_present = 0;
+	g_last_gun_xy = 0;
+	g_gun_lit_seen = 0;
+	g_last_gun_poll_us = 0;
 	g_last_p2_buttons = 0;
 	g_last_p2_x = 128;
 	g_last_p2_y = 128;
@@ -1099,6 +1140,7 @@ static int read_ps2_controller_state(struct ControllerState *state)
 	uint8_t slot1_mode;
 
 	clear_controller_state_value(state);
+	g_gun_present = 0;
 
 	if(!ps2_poll_raw(rx))
 	{
@@ -1132,6 +1174,15 @@ static int read_ps2_controller_state(struct ControllerState *state)
 		return 0;
 	}
 	ps2_log_slot_state(1, 1, state, ps2_buttons, rx[PS2_RESP_MODE]);
+	if(rx[PS2_RESP_MODE] == PS2_MODE_GUNCON)
+	{
+		uint32_t gun_x = (uint32_t) rx[PS2_RESP_GUN_X_LO] |
+			((uint32_t) rx[PS2_RESP_GUN_X_HI] << 8);
+		uint32_t gun_y = (uint32_t) rx[PS2_RESP_GUN_Y_LO] |
+			((uint32_t) rx[PS2_RESP_GUN_Y_HI] << 8);
+		g_gun_present = 1;
+		g_gun_xy = (gun_x << 16) | gun_y;
+	}
 
 	clear_controller_state_value(&state2);
 	slot2_mode = 0;
@@ -1287,6 +1338,64 @@ static void process_event_queue(void)
 	}
 }
 
+/* Queue g_gun_xy for the PSP if it changed, keeping the last lit position
+ * through short "no light" readings (see GUN_NO_LIGHT_DEBOUNCE_MS). */
+static void report_gun_xy(uint32_t now)
+{
+	uint32_t gun_xy = g_gun_xy;
+
+	if((gun_xy >> 16) != GUN_X_NO_LIGHT && (gun_xy & 0xFFFFu) != GUN_Y_NO_LIGHT)
+	{
+		g_gun_lit_seen = 1;
+		g_gun_lit_xy = gun_xy;
+		g_gun_lit_ms = now;
+	}
+	else if(g_gun_lit_seen &&
+		(uint32_t) (now - g_gun_lit_ms) < GUN_NO_LIGHT_DEBOUNCE_MS)
+	{
+		gun_xy = g_gun_lit_xy;
+	}
+	if(!g_last_gun_present || gun_xy != g_last_gun_xy)
+	{
+		if(enqueue_joy_event(RJM_TYPE_AIM_RAW, gun_xy))
+		{
+			g_last_gun_present = 1;
+			g_last_gun_xy = gun_xy;
+		}
+	}
+}
+
+/* Between full polls, read only port 1 to catch the gun's position soon
+ * after it latches (see GUN_FAST_POLL_US). Buttons, player 2 and the gun
+ * going away are left to the full poll. */
+static void poll_gun_fast(uint32_t now)
+{
+	uint8_t rx[PS2_RESPONSE_SIZE];
+	uint32_t now_us;
+
+	if(!g_gun_present)
+	{
+		return;
+	}
+	now_us = time_us_32();
+	if((uint32_t) (now_us - g_last_gun_poll_us) < GUN_FAST_POLL_US)
+	{
+		return;
+	}
+	g_last_gun_poll_us = now_us;
+
+	if(!ps2_poll_raw(rx) || rx[PS2_RESP_MODE] != PS2_MODE_GUNCON)
+	{
+		return;
+	}
+	g_gun_xy = (((uint32_t) rx[PS2_RESP_GUN_X_LO] |
+		((uint32_t) rx[PS2_RESP_GUN_X_HI] << 8)) << 16) |
+		((uint32_t) rx[PS2_RESP_GUN_Y_LO] |
+		((uint32_t) rx[PS2_RESP_GUN_Y_HI] << 8));
+	report_gun_xy(now);
+	process_event_queue();
+}
+
 static void poll_input_state(void)
 {
 	uint32_t now;
@@ -1303,8 +1412,10 @@ static void poll_input_state(void)
 	now = to_ms_since_boot(get_absolute_time());
 	if((uint32_t) (now - g_last_poll_ms) < STATE_REPORT_MS)
 	{
+		poll_gun_fast(now);
 		return;
 	}
+	g_last_gun_poll_us = time_us_32();
 	g_last_poll_ms = now;
 
 	if(!read_controller_state(&state))
@@ -1356,6 +1467,21 @@ static void poll_input_state(void)
 	{
 		enqueue_joy_event(RJM_TYPE_P2_ANALOG_Y, p2_state.y);
 		g_last_p2_y = p2_state.y;
+	}
+
+	/* GunCon position: send it when it changes, and release the aim once
+	 * the gun is gone. The last-sent state only advances when the event was
+	 * queued, so a full queue is retried on the next poll. */
+	if(g_gun_present)
+	{
+		report_gun_xy(now);
+	}
+	else if(g_last_gun_present)
+	{
+		if(enqueue_joy_event(RJM_TYPE_AIM_RELEASE, 0))
+		{
+			g_last_gun_present = 0;
+		}
 	}
 
 	if((uint32_t) (now - g_last_button_reassert_ms) >= BUTTON_REASSERT_MS)

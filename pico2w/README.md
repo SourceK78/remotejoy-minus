@@ -229,6 +229,8 @@ Behavior:
 - Turning the controller past a screen edge reports "off screen" to the game.
   The position beyond the edge is remembered, so turning back lands where the
   controller points again.
+- The PSP shows a small crosshair while aiming. Holding the buttons mapped to
+  START and Cross (GunCon A + B) for two seconds shows or hides it.
 - **Gyro aim** sets the rotation, in degrees, that sweeps the screen width.
   Smaller values move the aim further per turn; use smaller values for small
   or distant screens.

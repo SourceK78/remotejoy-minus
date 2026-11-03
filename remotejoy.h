@@ -26,6 +26,7 @@
 #define TYPE_AIM            11
 #define TYPE_AIM_RELEASE    12
 #define TYPE_AIM_OFFSCREEN  13
+#define TYPE_AIM_RAW        14
 
 /* Screen commands */
 #define SCREEN_CMD_ACTIVE 1

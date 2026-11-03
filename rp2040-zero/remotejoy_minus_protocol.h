@@ -33,6 +33,10 @@
 #define RJM_TYPE_AIM_RELEASE    12
 /* Aim is active but pointing off screen (a light gun sees no light). */
 #define RJM_TYPE_AIM_OFFSCREEN  13
+/* Aim from a real GunCon: value = (x << 16) | y in the gun's own units
+ * (X dot clock, Y scanline), passed to the game unchanged. A gun that sees
+ * no light reports X=01h, Y=0Ah. */
+#define RJM_TYPE_AIM_RAW        14
 
 #define PSP_CTRL_SELECT     0x000001UL
 #define PSP_CTRL_START      0x000008UL
