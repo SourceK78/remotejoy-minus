@@ -14,6 +14,16 @@ set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
+# Build the Windows 11 NCM fix (tinyusb_patch/README.md) in place of the SDK's
+# ncm_device.c.
+get_target_property(RJM_TUSB_DEVICE_SOURCES tinyusb_device_base INTERFACE_SOURCES)
+list(FILTER RJM_TUSB_DEVICE_SOURCES EXCLUDE REGEX "/class/net/ncm_device\\.c$")
+list(APPEND RJM_TUSB_DEVICE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/tinyusb_patch/ncm_device.c)
+set_target_properties(tinyusb_device_base PROPERTIES
+	INTERFACE_SOURCES "${RJM_TUSB_DEVICE_SOURCES}")
+target_include_directories(tinyusb_device_base INTERFACE
+	${PICO_TINYUSB_PATH}/src/class/net)
+
 add_executable(remotejoy_minus_rp2040
 	standalone_usbhost.c
 	mapping_config.c

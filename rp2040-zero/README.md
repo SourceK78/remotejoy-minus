@@ -198,6 +198,9 @@ configuration mode, then:
    controller stays connected and is powered from the PC.
 2. The RP2040-zero appears as a USB network adapter (CDC-NCM; Windows 11,
    macOS and Linux include a driver) and assigns the PC an address by DHCP.
+   On Windows 11 after update KB5124008 this needs the TinyUSB NCM fix in
+   [tinyusb_patch/](./tinyusb_patch/); the first connection can take a while
+   until the driver is ready and an address is assigned.
 3. Open `http://192.168.7.1/`.
 4. Edit the profiles and press **Save settings**, or **Finish setup** to save
    and reboot into normal mode.
