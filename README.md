@@ -9,12 +9,21 @@ The repository contains the PSP plugin and two input firmware options:
 | Firmware | Input | Configuration | Players |
 |---|---|---|---|
 | [Pico 2 W](./pico2w/README.md) | Bluetooth via joypad-os | Wi-Fi Web portal | 1P and optional POPS 2P |
-| [RP2040-Zero](./rp2040-zero/README.md) | Wired PS1/PS2 controllers | Compile-time | 1P and PS1 multitap POPS 2P |
+| [RP2040-Zero](./rp2040-zero/README.md) | Wired PS1/PS2 controllers | USB Web portal | 1P and PS1 multitap POPS 2P |
 
-The Pico 2 W firmware supports persistent controller pairing, shared mapping
-profiles, configurable RGB indication, multilingual browser configuration,
-and JSON mapping import/export. See its dedicated README for hardware and
-setup instructions.
+Both firmwares support mapping profiles, configurable RGB indication,
+multilingual browser configuration, and JSON mapping import/export; the JSON
+format is shared, so profiles can be moved between them.
+
+- The Pico 2 W firmware is configured over its Wi-Fi access point and also
+  supports persistent Bluetooth controller pairing.
+- The RP2040-Zero firmware is configured over USB: holding L1 + L2 + D-pad Down
+  on the player 1 controller at power-on starts the Web configuration mode,
+  in which the RP2040-Zero appears to a PC as a USB network adapter
+  (`http://192.168.7.1/`). It also supports a real Namco GunCon and the
+  Pop'n Music / Guitar Freaks controllers.
+
+See each firmware's README for hardware and setup instructions.
 
 ## PSP plugin build
 
@@ -111,6 +120,11 @@ Its UF2 output is:
 rp2040-zero/build/remotejoy_minus_rp2040.uf2
 ```
 
+The same UF2 contains the Web configuration mode; no separate configuration
+build is needed. It builds TinyUSB's NCM driver from
+[`rp2040-zero/tinyusb_patch/`](./rp2040-zero/tinyusb_patch/README.md), which
+carries a fix needed by Windows 11.
+
 ## POPS 2P overview
 
 The optional P2 protocol keeps the original RemoteJoy event types unchanged
@@ -190,6 +204,7 @@ RemoteJoy/usbhostfs, so its copyright notice, license conditions, and
 disclaimer must be preserved when redistributing source or binaries.
 
 `remotejoy.h` retains its original license header. When distributing firmware,
-also comply with the licenses of Pico SDK, TinyUSB, joypad-os, BTstack, and the
+also comply with the licenses of Pico SDK, TinyUSB (including the patched
+`rp2040-zero/tinyusb_patch/ncm_device.c`), joypad-os, BTstack, and the
 vendored pico-examples/MicroPython components. Binary distributions should
 include the license and notice files identified in `THIRD_PARTY_NOTICES.md`.

@@ -30,8 +30,17 @@ The DHCP server files in the same directory originate from MicroPython and are
 licensed under the MIT License. Their source headers are retained; see
 `pico2w/third_party/pico-examples/LICENSE.micropython.txt`.
 
+## TinyUSB
+
+`rp2040-zero/tinyusb_patch/ncm_device.c` is TinyUSB 0.18.0's
+`src/class/net/ncm_device.c` (from the Pico SDK) with a Windows 11 fix, as
+described in `rp2040-zero/tinyusb_patch/README.md`. It is licensed under the
+MIT License; its source header with the copyright and license text is
+retained. The RP2040-Zero Web configuration mode also builds TinyUSB's
+`lib/networking/dhserver.c` (MIT) from the Pico SDK.
+
 ## Binary distribution
 
 When redistributing UF2 or other binaries, include the repository `LICENSE`,
-this notice, the joypad-os Apache License 2.0 text, and the vendored
-pico-examples/MicroPython license texts in the accompanying materials.
+this notice, the joypad-os Apache License 2.0 text, the TinyUSB MIT license
+text, and the vendored pico-examples/MicroPython license texts in the accompanying materials.
