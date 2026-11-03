@@ -135,6 +135,7 @@ static unsigned char g_virtual_ly;
 static unsigned int g_input_reset_serial;
 static int g_cleanup_started;
 static int g_is_pops_context;
+static int g_music_controller;
 #if RJM_REBOOT_LOAD_POPS
 static SceUID g_reboot_prx_block = -1;
 #endif
@@ -180,6 +181,18 @@ extern int ctrl_peek_negative_hook(SceCtrlData *pad_data, int count);
 static int is_pops_context(void)
 {
 	return g_is_pops_context;
+}
+
+/* Pop'n Music / Guitar Freaks controllers hold LEFT all the time, so under
+ * POPS START+LEFT goes to the game instead of the brightness combo. */
+static int is_display_combo(unsigned int buttons)
+{
+	if(g_music_controller && is_pops_context())
+	{
+		return 0;
+	}
+
+	return (buttons & PSP_CTRL_START) && (buttons & REMOTE_DISPLAY_COMBO_BUTTON);
 }
 
 static int should_yield_to_pops_context(void)
@@ -288,7 +301,7 @@ static unsigned int sanitize_remote_buttons(unsigned int buttons)
 {
 	unsigned int internal_buttons = REMOTE_INTERNAL_BUTTONS;
 
-	if((buttons & PSP_CTRL_START) && (buttons & REMOTE_DISPLAY_COMBO_BUTTON))
+	if(is_display_combo(buttons))
 	{
 		buttons &= ~(PSP_CTRL_START | REMOTE_DISPLAY_COMBO_BUTTON);
 	}
@@ -494,6 +507,7 @@ static void reset_remote_input_state(void)
 	g_p2joy.Lx = ANALOG_CENTER;
 	g_p2joy.Ly = ANALOG_CENTER;
 	g_p2_connected = 0;
+	g_music_controller = 0;
 	g_remote_latch_make = 0;
 	g_remote_latch_break = 0;
 	g_virtual_analog_active = 0;
@@ -586,7 +600,7 @@ static int special_button_thread(SceSize args, void *argp)
 	{
 		unsigned int buttons = get_current_buttons() & REMOTE_SPECIAL_BUTTONS;
 		unsigned int pressed;
-		int display_combo = ((buttons & PSP_CTRL_START) && (buttons & REMOTE_DISPLAY_COMBO_BUTTON));
+		int display_combo = is_display_combo(buttons);
 
 		if(should_yield_to_pops_context())
 		{
@@ -1510,6 +1524,9 @@ static void handle_joyevent(const struct JoyEvent *joyevent)
 			pops_aim_set_raw(joyevent->value);
 			break;
 #endif
+		case TYPE_MUSIC_CONTROLLER:
+			g_music_controller = joyevent->value != 0;
+			break;
 		default:
 			break;
 	}
@@ -1533,6 +1550,10 @@ static void handle_joyevent(const struct JoyEvent *joyevent)
 		rjmLogHex("joy p2 connected ", g_p2_connected);
 	}
 #endif
+	else if(joyevent->type == TYPE_MUSIC_CONTROLLER)
+	{
+		rjmLogHex("joy music controller ", g_music_controller);
+	}
 	else if(joyevent->type == TYPE_ANALOG_X || joyevent->type == TYPE_ANALOG_Y ||
 		joyevent->type == TYPE_P2_ANALOG_X || joyevent->type == TYPE_P2_ANALOG_Y)
 	{
@@ -1665,6 +1686,8 @@ int module_start(SceSize args, void *argp)
 	g_is_pops_context = sceKernelApplicationType() == PSP_INIT_KEYCONFIG_POPS ||
 		sceKernelFindModuleByName("scePops_Manager") != NULL;
 	rjmUsbSetPopsContext(g_is_pops_context);
+	rjmUsbSetVshContext(!g_is_pops_context &&
+		sceKernelApplicationType() == PSP_INIT_KEYCONFIG_VSH);
 	reserve_pops_reboot_load();
 	memset(&g_currjoy, 0, sizeof(g_currjoy));
 	g_currjoy.Lx = ANALOG_CENTER;

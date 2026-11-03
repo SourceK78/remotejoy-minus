@@ -13,6 +13,7 @@ int rjmUsbResume(void);
 int rjmUsbWaitForConnect(void);
 int rjmUsbIsConnected(void);
 void rjmUsbSetPopsContext(int is_pops);
+void rjmUsbSetVshContext(int is_vsh);
 void rjmUsbAsyncFlush(void);
 int rjmUsbAsyncRead(unsigned char *data, int len);
 

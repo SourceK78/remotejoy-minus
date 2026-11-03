@@ -15,6 +15,7 @@
 #define RJM_HOSTFS_CMD_CONTEXT 0x8FFC0001UL
 #define RJM_HOSTFS_CAP_CONTEXT 0x00000001UL
 #define RJM_CONTEXT_POPS       0x00000001UL
+#define RJM_CONTEXT_VSH        0x00000002UL
 #define RJM_ASYNC_JOY_CHANNEL 4
 
 #define RJM_TYPE_BUTTON_DOWN 1
@@ -37,6 +38,10 @@
  * (X dot clock, Y scanline), passed to the game unchanged. A gun that sees
  * no light reports X=01h, Y=0Ah. */
 #define RJM_TYPE_AIM_RAW        14
+/* value != 0 while a Pop'n Music / Guitar Freaks controller is connected.
+ * Under POPS the plugin then leaves START+LEFT (screen brightness) to the
+ * game, since these controllers hold LEFT all the time. */
+#define RJM_TYPE_MUSIC_CONTROLLER 15
 
 #define PSP_CTRL_SELECT     0x000001UL
 #define PSP_CTRL_START      0x000008UL

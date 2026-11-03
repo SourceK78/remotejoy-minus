@@ -27,6 +27,8 @@
 #define TYPE_AIM_RELEASE    12
 #define TYPE_AIM_OFFSCREEN  13
 #define TYPE_AIM_RAW        14
+/* value != 0 while a Pop'n Music / Guitar Freaks controller is connected. */
+#define TYPE_MUSIC_CONTROLLER 15
 
 /* Screen commands */
 #define SCREEN_CMD_ACTIVE 1

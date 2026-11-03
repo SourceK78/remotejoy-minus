@@ -99,7 +99,7 @@ LED colors:
 	Red             PSP connection waiting / not connected
 	Profile color   PSP connected; color of the active mapping profile
 	                (set in the Web configuration; black turns it off)
-	White           PSP connected, Pop'n Music Controller Mode
+	White           PSP connected, Pop'n Music / Guitar Freaks Controller Mode
 	Red breathing   Web configuration mode
 
 With the default profiles the colors are the same as the former right stick
@@ -220,7 +220,8 @@ The page provides:
 - Eight UI languages, as on the Pico 2 W.
 
 Mappings are shared by player 1 and player 2 (multitap). Pop'n Music
-Controller Mode and the GunCon keep their own fixed mappings.
+Controller Mode, Guitar Freaks Controller Mode and the GunCon keep their own
+fixed mappings.
 
 Pop'n Music Controller Mode
 ---------------------------
@@ -237,11 +238,48 @@ this mode. The mapping profile, START+RIGHT HOME, START+R3 / START+COMBO
 profile switching and volume combos are disabled while Pop'n Music Controller Mode is
 active.  
 
+The remapping above applies to PSP games only. See "Music Controllers under
+POPS and the XMB" below for POPS and the XMB.
+
 To align with the remapping, we recommend configuring the key settings for *PSP Pop'n Music* as shown in the image below.  
 
 <img src="./assets/popn-keyconfig-9.png" />
 <img src="./assets/popn-keyconfig-7.png" />
 <img src="./assets/popn-keyconfig-5.png" />
+
+Guitar Freaks Controller Mode
+-----------------------------
+
+When a Guitar Freaks controller, which holds PS2 left+right all the time, is
+connected, it automatically switches to Guitar Freaks controller mode, and the
+LED lights up white. Pop'n Music Controller Mode (left+right+down) takes
+priority.
+
+In PSP games the buttons are sent to the PSP unchanged (Up, Down, Triangle,
+Circle, Cross, Square, L1 -> L, R1 -> R, START, SELECT). The detection keys,
+PS2 left/right, are not passed through, and L2/R2/L3/R3 have no PSP
+counterpart. As in Pop'n Music Controller Mode, the mapping profile, HOME,
+profile switching and volume combos are disabled.
+
+Music Controllers under POPS and the XMB
+----------------------------------------
+
+The PSP plugin tells the firmware whether the XMB, a PSP game or a POPS game
+is running, and both controller modes follow it:
+
+	PSP game   Pop'n Music: remapped as above
+	           Guitar Freaks: passed through without left/right
+	POPS       Both passed through unchanged, detection keys included, so
+	           the PS1 game recognizes the dedicated controller.
+	           L2/R2 are sent as the plugin's virtual L2/R2 (as in the
+	           default profile); set them in POPS's controller assignment.
+	           START+LEFT (screen brightness) and START+RIGHT (HOME) are
+	           disabled, so START works on its own while LEFT/RIGHT are held.
+	XMB        Input from both controllers is ignored, since the held
+	           detection keys would make the XMB unusable.
+
+This needs the PSP plugin from this repository; an older plugin does not report
+the context, and both controllers then behave as in PSP games.
 
 Namco GunCon
 ------------

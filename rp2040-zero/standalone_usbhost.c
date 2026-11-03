@@ -148,6 +148,8 @@ static const struct ButtonMap g_buttons[BUTTON_COUNT] = {
 static uint8_t g_desc_device[18];
 static uint8_t g_desc_config[CONFIG_TOTAL_MAX];
 static uint8_t g_xfer_buf[64] TU_ATTR_ALIGNED(4);
+/* HostFS commands after the hello; g_xfer_buf is busy with JoyEvents then. */
+static uint8_t g_cmd_buf[HOSTFS_CMD_SIZE] TU_ATTR_ALIGNED(4);
 static struct UsbHostFsEndpoints g_eps;
 static tusb_desc_endpoint_t g_ep_bulk_in_desc;
 static tusb_desc_endpoint_t g_ep_bulk_out_cmd_desc;
@@ -199,6 +201,17 @@ static uint32_t g_last_button_reassert_ms;
 static int g_status_led_initialized;
 static uint32_t g_status_led_last_rgb = 0xFFFFFFFFUL;
 static int g_popn_music_controller_mode;
+static int g_guitar_freaks_controller_mode;
+static int g_last_music_controller = -1;
+/* What the PSP runs, from HOSTFS_CMD_CONTEXT. A plugin that does not send it
+ * leaves PSP game. */
+enum PspContext
+{
+	PSP_CONTEXT_GAME,
+	PSP_CONTEXT_POPS,
+	PSP_CONTEXT_VSH
+};
+static enum PspContext g_psp_context;
 /* START+R3, or START + an input mapped to COMBO, switches to the next
  * profile once per press; START is withheld from the PSP while the chord is
  * held. */
@@ -218,6 +231,8 @@ static uint8_t g_event_tail;
 static void hostfs_magic_sent_cb(tuh_xfer_t *xfer);
 static void hostfs_hello_read_cb(tuh_xfer_t *xfer);
 static void hostfs_hello_response_sent_cb(tuh_xfer_t *xfer);
+static void hostfs_context_read_cb(tuh_xfer_t *xfer);
+static void hostfs_context_response_sent_cb(tuh_xfer_t *xfer);
 static void joy_event_sent_cb(tuh_xfer_t *xfer);
 static void clear_controller_state_value(struct ControllerState *state);
 
@@ -257,7 +272,7 @@ static void update_status_led(void)
 		return;
 	}
 
-	if(g_popn_music_controller_mode)
+	if(g_popn_music_controller_mode || g_guitar_freaks_controller_mode)
 	{
 		status_led_set_rgb(255, 255, 255);
 		return;
@@ -309,6 +324,7 @@ static void clear_endpoints(void)
 	g_last_y = 128;
 	g_p2_present = 0;
 	g_last_p2_present = -1;
+	g_last_music_controller = -1;
 	clear_controller_state_value(&g_p2_state);
 	g_gun_present = 0;
 	g_last_gun_present = 0;
@@ -323,6 +339,8 @@ static void clear_endpoints(void)
 	g_last_button_reassert_ms = 0;
 	memset(g_combo_chord, 0, sizeof(g_combo_chord));
 	g_popn_music_controller_mode = 0;
+	g_guitar_freaks_controller_mode = 0;
+	g_psp_context = PSP_CONTEXT_GAME;
 	memset(g_ps2_slot_present, 0, sizeof(g_ps2_slot_present));
 	memset(g_ps2_slot_last_buttons, 0, sizeof(g_ps2_slot_last_buttons));
 	memset(g_ps2_slot_last_x, 128, sizeof(g_ps2_slot_last_x));
@@ -341,6 +359,7 @@ static void reset_input_diff_state(void)
 	g_last_y = 128;
 	g_p2_present = 0;
 	g_last_p2_present = -1;
+	g_last_music_controller = -1;
 	clear_controller_state_value(&g_p2_state);
 	g_gun_present = 0;
 	g_last_gun_present = 0;
@@ -715,9 +734,82 @@ static uint32_t ps2_popn_music_buttons_to_psp(uint32_t ps2)
 	return psp;
 }
 
+/* The Guitar Freaks controller holds PS2 left+right; Pop'n Music (left+
+ * right+down) is checked first. */
+static int ps2_is_guitar_freaks_controller(uint32_t ps2)
+{
+	return !ps2_is_popn_music_controller(ps2) &&
+		(ps2 & (PS2_BTN_LEFT | PS2_BTN_RIGHT)) ==
+		(PS2_BTN_LEFT | PS2_BTN_RIGHT);
+}
+
+/* Buttons are passed through unchanged, except the left+right detection keys. */
+static uint32_t ps2_guitar_freaks_buttons_to_psp(uint32_t ps2)
+{
+	uint32_t psp = 0;
+
+	if(ps2 & PS2_BTN_UP)       psp |= PSP_CTRL_UP;
+	if(ps2 & PS2_BTN_DOWN)     psp |= PSP_CTRL_DOWN;
+	if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_TRIANGLE;
+	if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_CIRCLE;
+	if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_CROSS;
+	if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_SQUARE;
+	if(ps2 & PS2_BTN_L1)       psp |= PSP_CTRL_LTRIGGER;
+	if(ps2 & PS2_BTN_R1)       psp |= PSP_CTRL_RTRIGGER;
+	if(ps2 & PS2_BTN_START)    psp |= PSP_CTRL_START;
+	if(ps2 & PS2_BTN_SELECT)   psp |= PSP_CTRL_SELECT;
+
+	return psp;
+}
+
+/* Under POPS both controllers are passed through unchanged, detection keys
+ * included, so the PS1 game recognizes them. L2/R2 go out as the PSP
+ * plugin's virtual L2/R2 (VOLDOWN/VOLUP), as in the default profile. */
+static uint32_t ps2_music_controller_buttons_to_pops(uint32_t ps2)
+{
+	uint32_t psp = 0;
+
+	if(ps2 & PS2_BTN_UP)       psp |= PSP_CTRL_UP;
+	if(ps2 & PS2_BTN_RIGHT)    psp |= PSP_CTRL_RIGHT;
+	if(ps2 & PS2_BTN_DOWN)     psp |= PSP_CTRL_DOWN;
+	if(ps2 & PS2_BTN_LEFT)     psp |= PSP_CTRL_LEFT;
+	if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_TRIANGLE;
+	if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_CIRCLE;
+	if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_CROSS;
+	if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_SQUARE;
+	if(ps2 & PS2_BTN_L1)       psp |= PSP_CTRL_LTRIGGER;
+	if(ps2 & PS2_BTN_R1)       psp |= PSP_CTRL_RTRIGGER;
+	if(ps2 & PS2_BTN_L2)       psp |= PSP_CTRL_VOLDOWN;
+	if(ps2 & PS2_BTN_R2)       psp |= PSP_CTRL_VOLUP;
+	if(ps2 & PS2_BTN_START)    psp |= PSP_CTRL_START;
+	if(ps2 & PS2_BTN_SELECT)   psp |= PSP_CTRL_SELECT;
+
+	return psp;
+}
+
+static void update_guitar_freaks_controller_mode(uint32_t ps2_buttons)
+{
+	int detected = ps2_is_guitar_freaks_controller(ps2_buttons);
+
+	if(detected && !g_guitar_freaks_controller_mode)
+	{
+		g_guitar_freaks_controller_mode = 1;
+		printf("Guitar Freaks controller mode enabled\n");
+		update_status_led();
+	}
+	else if(!detected && g_guitar_freaks_controller_mode)
+	{
+		g_guitar_freaks_controller_mode = 0;
+		printf("Guitar Freaks controller mode disabled\n");
+		update_status_led();
+	}
+}
+
 static void update_popn_music_controller_mode(uint32_t ps2_buttons)
 {
 	int detected = ps2_is_popn_music_controller(ps2_buttons);
+
+	update_guitar_freaks_controller_mode(ps2_buttons);
 
 	if(detected && !g_popn_music_controller_mode)
 	{
@@ -907,9 +999,20 @@ static int ps2_decode_poll_response(const uint8_t *rx,
 	if(use_global_modes)
 	{
 		update_popn_music_controller_mode(*ps2_buttons);
-		if(g_popn_music_controller_mode)
+		if(g_popn_music_controller_mode || g_guitar_freaks_controller_mode)
 		{
-			state->buttons = ps2_popn_music_buttons_to_psp(*ps2_buttons);
+			/* The held detection keys would make the XMB unusable, so the
+			 * controllers are ignored there. */
+			if(g_psp_context == PSP_CONTEXT_POPS)
+			{
+				state->buttons = ps2_music_controller_buttons_to_pops(*ps2_buttons);
+			}
+			else if(g_psp_context == PSP_CONTEXT_GAME)
+			{
+				state->buttons = g_popn_music_controller_mode ?
+					ps2_popn_music_buttons_to_psp(*ps2_buttons) :
+					ps2_guitar_freaks_buttons_to_psp(*ps2_buttons);
+			}
 			return 1;
 		}
 	}
@@ -1386,6 +1489,7 @@ static void poll_input_state(void)
 	uint32_t now;
 	uint32_t changed;
 	uint32_t p2_changed;
+	int music_controller;
 	struct ControllerState state;
 	struct ControllerState p2_state;
 
@@ -1409,6 +1513,14 @@ static void poll_input_state(void)
 	}
 
 	p2_state = g_p2_state;
+
+	/* Ahead of the buttons, so the plugin sees the mode before START+LEFT. */
+	music_controller = g_popn_music_controller_mode || g_guitar_freaks_controller_mode;
+	if(music_controller != g_last_music_controller &&
+		enqueue_joy_event(RJM_TYPE_MUSIC_CONTROLLER, (uint32_t) music_controller))
+	{
+		g_last_music_controller = music_controller;
+	}
 
 	changed = state.buttons ^ g_last_buttons;
 	if(changed != 0)
@@ -1639,7 +1751,9 @@ static void hostfs_hello_read_cb(tuh_xfer_t *xfer)
 		return;
 	}
 
-	len = rjm_build_hello_response(g_xfer_buf);
+	/* Advertise HOSTFS_CMD_CONTEXT; older plugins ignore it. */
+	len = rjm_build_hostfs_response(g_xfer_buf, RJM_HOSTFS_CMD_HELLO,
+		RJM_HOSTFS_CAP_CONTEXT);
 	printf("Sending HostFS hello response to endpoint 0x%02X\n", g_eps.ep_bulk_out_cmd);
 	if(!submit_xfer(g_eps.ep_bulk_out_cmd, g_xfer_buf, (uint16_t) len, hostfs_hello_response_sent_cb))
 	{
@@ -1664,7 +1778,58 @@ static void hostfs_hello_response_sent_cb(tuh_xfer_t *xfer)
 	printf("HostFS hello handshake complete (%lu bytes). remotejoy-minus.prx should now be connected.\n",
 		(unsigned long) xfer->actual_len);
 	printf("Ready to send RemoteJoyMinus JoyEvent packets to endpoint 0x%02X.\n", g_eps.ep_bulk_out_async);
+	memset(g_cmd_buf, 0, sizeof(g_cmd_buf));
+	if(!submit_xfer(g_eps.ep_bulk_in, g_cmd_buf, HOSTFS_CMD_SIZE, hostfs_context_read_cb))
+	{
+		printf("Failed to submit HostFS context read\n");
+	}
 	start_input_scan();
+}
+
+static void hostfs_context_read_cb(tuh_xfer_t *xfer)
+{
+	uint32_t context;
+	size_t len;
+
+	if(xfer->result != XFER_RESULT_SUCCESS || xfer->actual_len < HOSTFS_CMD_SIZE ||
+		le32(&g_cmd_buf[0]) != RJM_HOSTFS_MAGIC ||
+		le32(&g_cmd_buf[4]) != RJM_HOSTFS_CMD_CONTEXT)
+	{
+		printf("HostFS context read failed or unexpected, result %d\n", xfer->result);
+		return;
+	}
+
+	context = le32(&g_cmd_buf[8]);
+	if(context & RJM_CONTEXT_POPS)
+	{
+		g_psp_context = PSP_CONTEXT_POPS;
+	}
+	else if(context & RJM_CONTEXT_VSH)
+	{
+		g_psp_context = PSP_CONTEXT_VSH;
+	}
+	else
+	{
+		g_psp_context = PSP_CONTEXT_GAME;
+	}
+	printf("PSP context 0x%08lX: %s\n", (unsigned long) context,
+		g_psp_context == PSP_CONTEXT_POPS ? "POPS" :
+		g_psp_context == PSP_CONTEXT_VSH ? "XMB" : "PSP game");
+
+	len = rjm_build_hostfs_response(g_cmd_buf, RJM_HOSTFS_CMD_CONTEXT, context);
+	if(!submit_xfer(g_eps.ep_bulk_out_cmd, g_cmd_buf, (uint16_t) len,
+		hostfs_context_response_sent_cb))
+	{
+		printf("Failed to submit HostFS context response\n");
+	}
+}
+
+static void hostfs_context_response_sent_cb(tuh_xfer_t *xfer)
+{
+	if(xfer->result != XFER_RESULT_SUCCESS)
+	{
+		printf("HostFS context response write failed, result %d\n", xfer->result);
+	}
 }
 
 static void parse_config_descriptor(uint8_t daddr, const uint8_t *desc, uint16_t len)

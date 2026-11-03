@@ -23,6 +23,7 @@
 #define HOSTFS_CMD_CONTEXT 0x8FFC0001
 #define HOSTFS_CAP_CONTEXT 0x00000001
 #define HOSTFS_CONTEXT_POPS 0x00000001
+#define HOSTFS_CONTEXT_VSH  0x00000002
 #define MAX_ASYNC_BUFFER  4096
 #define PSP_USB_ERROR_ALREADY_STARTED 0x80243001
 
@@ -122,6 +123,7 @@ static struct AsyncEndpoint g_async_endp;
 static int g_usb_started;
 static int g_usb_ready;
 static int g_is_pops_context;
+static int g_is_vsh_context;
 static unsigned char g_transfer_buf[64 * 1024] __attribute__((aligned(64)));
 static unsigned char g_async_buf[512] __attribute__((aligned(64)));
 static int (*g_sceUsbStart)(const char *, int, void *);
@@ -446,6 +448,7 @@ static int send_hello_cmd(void)
 	}
 	rjmLogHex("usb hello resp extralen ", resp.extralen);
 	rjmLogHex("usb context is_pops ", g_is_pops_context);
+	rjmLogHex("usb context is_vsh ", g_is_vsh_context);
 
 	/* Older RP2040 hosts return zero here and continue to use the original
 	 * protocol.  Only advertise the PSP execution context to hosts that opted
@@ -456,7 +459,8 @@ static int send_hello_cmd(void)
 		memset(&context_resp, 0, sizeof(context_resp));
 		context.magic = HOSTFS_MAGIC;
 		context.command = HOSTFS_CMD_CONTEXT;
-		context.extralen = g_is_pops_context ? HOSTFS_CONTEXT_POPS : 0;
+		context.extralen = (g_is_pops_context ? HOSTFS_CONTEXT_POPS : 0) |
+			(g_is_vsh_context ? HOSTFS_CONTEXT_VSH : 0);
 		rjmLogHex("usb context send ", context.extralen);
 		if(!command_xchg(&context, sizeof(context), &context_resp, sizeof(context_resp)))
 		{
@@ -472,6 +476,12 @@ void rjmUsbSetPopsContext(int is_pops)
 {
 	g_is_pops_context = is_pops != 0;
 	rjmLogHex("usb set pops context ", g_is_pops_context);
+}
+
+void rjmUsbSetVshContext(int is_vsh)
+{
+	g_is_vsh_context = is_vsh != 0;
+	rjmLogHex("usb set vsh context ", g_is_vsh_context);
 }
 
 static void fill_async(void *async_data, int len)
