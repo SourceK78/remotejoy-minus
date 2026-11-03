@@ -20,7 +20,8 @@ Flash remotejoy_minus_rp2040.uf2 to the RP2040-zero.
 Wiring and Logs
 ---------------
 
-The RP2040-zero USB port is used as USB host, so USB serial logging is disabled.
+The RP2040-zero USB port is used as USB host (or as a USB network device in the
+Web configuration mode), so USB serial logging is disabled.
 Logs go to UART stdio. On the default Pico SDK settings this is UART0:
 
 	GPIO0  UART TX
@@ -91,15 +92,19 @@ Status RGB LED:
 The default firmware assumes an active-high/common-cathode RGB LED. For a
 common-anode LED, set `STATUS_LED_ACTIVE_LOW` to `1` in `standalone_usbhost.c`.
 
+The LED is driven by PWM, so any RGB color can be shown.
+
 LED colors:
 
-	Red     PSP connection waiting / not connected
-	Blue    PSP connected, right stick mapping off
-	Green   PSP connected, mode 1: right stick PSP d-pad
-	Magenta PSP connected, mode 2: right stick PSP face buttons,
-	        PS2 face buttons PSP d-pad
-	Cyan    PSP connected, mode 3: Star Soldier D-pad rotate
-	White   PSP connected, Pop'n Music Controller Mode
+	Red             PSP connection waiting / not connected
+	Profile color   PSP connected; color of the active mapping profile
+	                (set in the Web configuration; black turns it off)
+	White           PSP connected, Pop'n Music Controller Mode
+	Red breathing   Web configuration mode
+
+With the default profiles the colors are the same as the former right stick
+modes: blue (Default), green (Right stick D-pad), magenta (Face swap) and cyan
+(Star Soldier).
 
 GPIO27 is also used by the optional GPIO/ADC test wiring as ADC1. If you use
 `INPUT_SOURCE_GPIO`, move either the status LED pin or the analog Y pin.
@@ -127,7 +132,7 @@ plugin returns to normal POPS behavior.
 The PS2 multitap SCPH-10090 did not respond to this controller-port-only
 bitbang wiring. Use a PS1 multitap such as SCPH-1070 for POPS 2P support.
 
-Default PS2 to PSP mapping:
+Default PS2 to PSP mapping (profile "Default"):
 
 	PS2 cross     	PSP cross
 	PS2 circle    	PSP circle
@@ -138,34 +143,84 @@ Default PS2 to PSP mapping:
 	PS2 select    	PSP select
 	PS2 L1        	PSP L trigger
 	PS2 R1        	PSP R trigger
-	PS2 L2        	PSP analog left (for PS Archives)
-	PS2 R2        	PSP analog right (for PS Archives)
+	PS2 L2        	VOL- (PSP analog left for PS Archives)
+	PS2 R2        	VOL+ (PSP analog right for PS Archives)
 	PS2 L2 + R2   	PSP analog up (for PS Archives)
-	PS2 L3        	PSP sound
+	PS2 L3        	NOTE (PSP sound)
 	PS2 R3        	PSP home
 	PS2 start+L2  	PSP volume down
 	PS2 start+R2  	PSP volume up
+
+Everything above can be changed in the Web configuration. VOL-/VOL+ are
+handled by the PSP plugin as the virtual L2/R2 (PS Archives analog
+left/right, and volume with START), and NOTE as the PSP sound button, so
+those behaviors follow whichever PS2 button they are assigned to.
+
+Fixed combinations, independent of the profile:
+
 	PS2 start+left 	PSP display(Brightness only)
-	PS2 start+right PSP home(Alternative)
-	PS2 start+R3  	cycle controller mapping mode
-	PS2 right stick	mode off by default, switch by start+R3
-	  mode 1: right stick PSP d-pad
-	  mode 2: right stick PSP face buttons, PS2 face buttons PSP d-pad
-	  mode 3: Star Soldier D-pad rotate
+	PS2 start+right PSP home
+	PS2 start+R3  	next mapping profile
 
-Star Soldier Mode
------------------
+Default Mapping Profiles
+------------------------
 
-Mode 3 is intended for PSP Star Soldier's vertical PSP play style.  
-D-pad directions and the left analog stick are rotated:
+START+R3 switches to the next profile. START plus a button mapped to COMBO
+does the same. START is not sent to the PSP while the chord is held. The selected profile is saved and restored at the next power-on.
+
+The default profiles reproduce the former START+R3 right stick modes:
+
+	Default            standard mapping above (blue)
+	Right stick D-pad  right stick PSP d-pad (green)
+	Face swap          right stick PSP face buttons,
+	                   PS2 face buttons PSP d-pad (magenta)
+	Star Soldier       D-pad rotated for PSP Star Soldier's vertical play
+	                   style (cyan)
+
+Star Soldier profile D-pad rotation:
 
 	PS2 up   	PSP right
 	PS2 down 	PSP left
 	PS2 left 	PSP up
 	PS2 right	PSP down
 
-Other buttons keep the default mapping and can be configured in Star Soldier's
-own key configuration.
+The former Star Soldier mode also rotated the left analog stick; the profile
+only rotates the D-pad.
+
+Web Configuration
+-----------------
+
+Mapping profiles can be edited from a browser. Hold PS2 controller (player 1)
+L1 + L2 + D-pad Down while powering on the RP2040-zero to start the Web
+configuration mode, then:
+
+1. Connect the RP2040-zero USB port to a PC instead of the PSP. The PS2
+   controller stays connected and is powered from the PC.
+2. The RP2040-zero appears as a USB network adapter (CDC-NCM; Windows 11,
+   macOS and Linux include a driver) and assigns the PC an address by DHCP.
+3. Open `http://192.168.7.1/`.
+4. Edit the profiles and press **Save settings**, or **Finish setup** to save
+   and reboot into normal mode.
+5. Disconnect the USB cable from the PC and connect it to the PSP.
+
+The LED breathes red while the configuration mode is active.
+
+The page provides:
+
+- Mapping profile add, delete, select, and save (up to eight profiles).
+- PSP-button assignment for PS2 buttons and right-stick directions,
+  including HOME, VOL+, VOL-, NOTE and COMBO. VOL-/VOL+ change the volume
+  when pressed together with START, as noted on the page.
+- Left/right stick dead-zone sliders. A left dead zone of 0% passes the left
+  stick through unchanged.
+- Eight RGB presets plus custom R/G/B sliders for the profile LED color.
+- Mapping JSON export/import. The format is the same as the Pico 2 W build,
+  so files can be exchanged between them (Pico 2 W only settings such as
+  GunCon gyro mode are ignored).
+- Eight UI languages, as on the Pico 2 W.
+
+Mappings are shared by player 1 and player 2 (multitap). Pop'n Music
+Controller Mode and the GunCon keep their own fixed mappings.
 
 Pop'n Music Controller Mode
 ---------------------------
@@ -178,9 +233,9 @@ This is primarily used during gameplay in "Party Mode".
 <img src="./assets/popcon_remap.JPG" />
 
 The detection keys themselves, PS2 left/right/down, are not passed through in
-this mode. START+RIGHT HOME, START+R3 right stick mode switching, volume
-combos, and right stick remapping are disabled while Pop'n Music Controller
-Mode is active.  
+this mode. The mapping profile, START+RIGHT HOME, START+R3 / START+COMBO
+profile switching and volume combos are disabled while Pop'n Music Controller Mode is
+active.  
 
 To align with the remapping, we recommend configuring the key settings for *PSP Pop'n Music* as shown in the image below.  
 
@@ -198,7 +253,8 @@ presents POPS controller port 1 to the PS1 game as a GunCon. When the gun is
 removed, port 1 returns to the normal digital pad.
 
 - The gun's buttons are sent as normal input: the trigger is Circle, A is
-  START, and B is Cross.
+  START, and B is Cross. This mapping is fixed and does not follow the mapping
+  profile.
 - The GunCon measures its position from a CRT's scanning beam. It needs a CRT
   and the gun's video connection; on an LCD it only reports "off screen"
   (X=01h, Y=0Ah).

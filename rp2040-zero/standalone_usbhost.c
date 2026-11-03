@@ -5,9 +5,12 @@
 #include <string.h>
 #include "bsp/board.h"
 #include "hardware/adc.h"
+#include "hardware/pwm.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
 #include "remotejoy_minus_protocol.h"
+#include "config_portal.h"
+#include "mapping_config.h"
 
 #define CONFIG_TOTAL_MAX 256
 #define HOSTFS_CMD_SIZE 12
@@ -194,19 +197,12 @@ static uint32_t g_last_poll_ms;
 static uint32_t g_last_heartbeat_ms;
 static uint32_t g_last_button_reassert_ms;
 static int g_status_led_initialized;
-static int g_status_led_last_color = -1;
+static uint32_t g_status_led_last_rgb = 0xFFFFFFFFUL;
 static int g_popn_music_controller_mode;
-enum RightStickMode
-{
-	RIGHT_STICK_MODE_OFF = 0,
-	RIGHT_STICK_MODE_DPAD,
-	RIGHT_STICK_MODE_FACE_SWAP,
-	RIGHT_STICK_MODE_STAR_SOLDIER,
-	RIGHT_STICK_MODE_COUNT
-};
-
-static int g_right_stick_mode = RIGHT_STICK_MODE_OFF;
-static int g_last_ps2_r3_pressed;
+/* START+R3, or START + an input mapped to COMBO, switches to the next
+ * profile once per press; START is withheld from the PSP while the chord is
+ * held. */
+static int g_combo_chord[PS2_MULTITAP_SLOT_COUNT];
 static uint32_t g_ps2_analog_retry_start_ms;
 static uint32_t g_ps2_analog_retry_last_ms;
 static int g_ps2_slot_present[PS2_MULTITAP_SLOT_COUNT];
@@ -225,108 +221,61 @@ static void hostfs_hello_response_sent_cb(tuh_xfer_t *xfer);
 static void joy_event_sent_cb(tuh_xfer_t *xfer);
 static void clear_controller_state_value(struct ControllerState *state);
 
-enum StatusLedColor
+/* Wired to PWM slices 5B, 6A and 6B; 8-bit duty per channel. */
+static void status_led_init_pin(uint8_t pin)
 {
-	STATUS_LED_RED = 0,
-	STATUS_LED_GREEN,
-	STATUS_LED_BLUE,
-	STATUS_LED_MAGENTA,
-	STATUS_LED_CYAN,
-	STATUS_LED_WHITE
-};
-
-static void status_led_put_pin(uint8_t pin, int on)
-{
-	gpio_put(pin, STATUS_LED_ACTIVE_LOW ? !on : on);
+	gpio_set_function(pin, GPIO_FUNC_PWM);
+	pwm_set_wrap(pwm_gpio_to_slice_num(pin), 255);
+	pwm_set_output_polarity(pwm_gpio_to_slice_num(pin),
+		STATUS_LED_ACTIVE_LOW, STATUS_LED_ACTIVE_LOW);
+	pwm_set_gpio_level(pin, 0);
+	pwm_set_enabled(pwm_gpio_to_slice_num(pin), true);
 }
 
-static void status_led_set_color(int color)
+static void status_led_set_rgb(uint8_t red, uint8_t green, uint8_t blue)
 {
-	int red = 0;
-	int green = 0;
-	int blue = 0;
+	uint32_t rgb = ((uint32_t) red << 16) | ((uint32_t) green << 8) | blue;
 
-	if(!g_status_led_initialized || color == g_status_led_last_color)
+	if(!g_status_led_initialized || rgb == g_status_led_last_rgb)
 	{
 		return;
 	}
 
-	switch(color)
-	{
-		case STATUS_LED_GREEN:
-			green = 1;
-			break;
-		case STATUS_LED_BLUE:
-			blue = 1;
-			break;
-		case STATUS_LED_MAGENTA:
-			red = 1;
-			blue = 1;
-			break;
-		case STATUS_LED_CYAN:
-			green = 1;
-			blue = 1;
-			break;
-		case STATUS_LED_WHITE:
-			red = 1;
-			green = 1;
-			blue = 1;
-			break;
-		case STATUS_LED_RED:
-		default:
-			red = 1;
-			break;
-	}
-
-	status_led_put_pin(STATUS_LED_PIN_R, red);
-	status_led_put_pin(STATUS_LED_PIN_G, green);
-	status_led_put_pin(STATUS_LED_PIN_B, blue);
-	g_status_led_last_color = color;
+	pwm_set_gpio_level(STATUS_LED_PIN_R, red);
+	pwm_set_gpio_level(STATUS_LED_PIN_G, green);
+	pwm_set_gpio_level(STATUS_LED_PIN_B, blue);
+	g_status_led_last_rgb = rgb;
 }
 
 static void update_status_led(void)
 {
+	struct RjmRgb color;
+
 	if(!g_handshake_complete)
 	{
-		status_led_set_color(STATUS_LED_RED);
+		status_led_set_rgb(255, 0, 0);
 		return;
 	}
 
 	if(g_popn_music_controller_mode)
 	{
-		status_led_set_color(STATUS_LED_WHITE);
+		status_led_set_rgb(255, 255, 255);
 		return;
 	}
 
-	switch(g_right_stick_mode)
-	{
-		case RIGHT_STICK_MODE_DPAD:
-			status_led_set_color(STATUS_LED_GREEN);
-			break;
-		case RIGHT_STICK_MODE_FACE_SWAP:
-			status_led_set_color(STATUS_LED_MAGENTA);
-			break;
-		case RIGHT_STICK_MODE_STAR_SOLDIER:
-			status_led_set_color(STATUS_LED_CYAN);
-			break;
-		case RIGHT_STICK_MODE_OFF:
-		default:
-			status_led_set_color(STATUS_LED_BLUE);
-			break;
-	}
+	/* Active profile color; black turns the LED off. */
+	color = rjm_mapping_active_color();
+	status_led_set_rgb(color.red, color.green, color.blue);
 }
 
 static void init_status_led(void)
 {
-	gpio_init(STATUS_LED_PIN_R);
-	gpio_set_dir(STATUS_LED_PIN_R, GPIO_OUT);
-	gpio_init(STATUS_LED_PIN_G);
-	gpio_set_dir(STATUS_LED_PIN_G, GPIO_OUT);
-	gpio_init(STATUS_LED_PIN_B);
-	gpio_set_dir(STATUS_LED_PIN_B, GPIO_OUT);
+	status_led_init_pin(STATUS_LED_PIN_R);
+	status_led_init_pin(STATUS_LED_PIN_G);
+	status_led_init_pin(STATUS_LED_PIN_B);
 
 	g_status_led_initialized = 1;
-	g_status_led_last_color = -1;
+	g_status_led_last_rgb = 0xFFFFFFFFUL;
 	update_status_led();
 }
 
@@ -372,7 +321,7 @@ static void clear_endpoints(void)
 	g_last_poll_ms = 0;
 	g_last_heartbeat_ms = 0;
 	g_last_button_reassert_ms = 0;
-	g_last_ps2_r3_pressed = 0;
+	memset(g_combo_chord, 0, sizeof(g_combo_chord));
 	g_popn_music_controller_mode = 0;
 	memset(g_ps2_slot_present, 0, sizeof(g_ps2_slot_present));
 	memset(g_ps2_slot_last_buttons, 0, sizeof(g_ps2_slot_last_buttons));
@@ -404,7 +353,7 @@ static void reset_input_diff_state(void)
 	g_last_poll_ms = 0;
 	g_last_heartbeat_ms = 0;
 	g_last_button_reassert_ms = 0;
-	g_last_ps2_r3_pressed = 0;
+	memset(g_combo_chord, 0, sizeof(g_combo_chord));
 	memset(g_ps2_slot_present, 0, sizeof(g_ps2_slot_present));
 	memset(g_ps2_slot_last_buttons, 0, sizeof(g_ps2_slot_last_buttons));
 	memset(g_ps2_slot_last_x, 128, sizeof(g_ps2_slot_last_x));
@@ -773,118 +722,96 @@ static void update_popn_music_controller_mode(uint32_t ps2_buttons)
 	if(detected && !g_popn_music_controller_mode)
 	{
 		g_popn_music_controller_mode = 1;
-		g_right_stick_mode = RIGHT_STICK_MODE_OFF;
 		printf("Pop'n Music controller mode enabled\n");
 		update_status_led();
 	}
 	else if(!detected && g_popn_music_controller_mode)
 	{
 		g_popn_music_controller_mode = 0;
-		g_right_stick_mode = RIGHT_STICK_MODE_OFF;
 		printf("Pop'n Music controller mode disabled\n");
 		update_status_led();
 	}
 }
 
-static uint32_t ps2_buttons_to_psp(uint32_t ps2)
+/* GunCon buttons keep their fixed mapping (trigger Circle, A START,
+ * B Cross) whatever the active profile is. */
+static uint32_t ps2_guncon_buttons_to_psp(uint32_t ps2)
 {
 	uint32_t psp = 0;
 
 	if(ps2 & PS2_BTN_SELECT)   psp |= PSP_CTRL_SELECT;
 	if(ps2 & PS2_BTN_START)    psp |= PSP_CTRL_START;
-	if(g_right_stick_mode == RIGHT_STICK_MODE_STAR_SOLDIER)
-	{
-		if(ps2 & PS2_BTN_UP)    psp |= PSP_CTRL_RIGHT;
-		if(ps2 & PS2_BTN_DOWN)  psp |= PSP_CTRL_LEFT;
-		if(ps2 & PS2_BTN_LEFT)  psp |= PSP_CTRL_UP;
-		if((ps2 & PS2_BTN_RIGHT) && !(ps2 & PS2_BTN_START)) psp |= PSP_CTRL_DOWN;
-	}
-	else
-	{
-		if(ps2 & PS2_BTN_UP)       psp |= PSP_CTRL_UP;
-		if((ps2 & PS2_BTN_RIGHT) && !(ps2 & PS2_BTN_START)) psp |= PSP_CTRL_RIGHT;
-		if(ps2 & PS2_BTN_DOWN)     psp |= PSP_CTRL_DOWN;
-		if(ps2 & PS2_BTN_LEFT)     psp |= PSP_CTRL_LEFT;
-	}
-	if(ps2 & PS2_BTN_L1)       psp |= PSP_CTRL_LTRIGGER;
-	if(ps2 & PS2_BTN_R1)       psp |= PSP_CTRL_RTRIGGER;
-	if(ps2 & PS2_BTN_L2)       psp |= PSP_CTRL_VOLDOWN;
-	if(ps2 & PS2_BTN_R2)       psp |= PSP_CTRL_VOLUP;
-	if(ps2 & PS2_BTN_L3)       psp |= PSP_CTRL_NOTE;
-	if((ps2 & PS2_BTN_START) && (ps2 & PS2_BTN_RIGHT)) psp |= PSP_CTRL_HOME;
-	/* R3 is HOME unless START is held; START+R3 toggles the controller mapping mode. */
-	if((ps2 & PS2_BTN_R3) && !(ps2 & PS2_BTN_START)) psp |= PSP_CTRL_HOME;
-	if(g_right_stick_mode == RIGHT_STICK_MODE_FACE_SWAP)
-	{
-		if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_UP;
-		if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_RIGHT;
-		if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_DOWN;
-		if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_LEFT;
-	}
-	else
-	{
-		if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_TRIANGLE;
-		if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_CIRCLE;
-		if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_CROSS;
-		if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_SQUARE;
-	}
+	if(ps2 & PS2_BTN_TRIANGLE) psp |= PSP_CTRL_TRIANGLE;
+	if(ps2 & PS2_BTN_CIRCLE)   psp |= PSP_CTRL_CIRCLE;
+	if(ps2 & PS2_BTN_CROSS)    psp |= PSP_CTRL_CROSS;
+	if(ps2 & PS2_BTN_SQUARE)   psp |= PSP_CTRL_SQUARE;
 
 	return psp;
 }
 
-static uint32_t ps2_right_stick_to_dpad(uint8_t rx, uint8_t ry)
+static uint32_t ps2_buttons_to_inputs(uint32_t ps2)
 {
-	uint32_t buttons = 0;
+	static const struct
+	{
+		uint32_t ps2;
+		uint8_t input;
+	} k_inputs[] = {
+		{ PS2_BTN_CROSS,    RJM_INPUT_A },
+		{ PS2_BTN_CIRCLE,   RJM_INPUT_B },
+		{ PS2_BTN_SQUARE,   RJM_INPUT_X },
+		{ PS2_BTN_TRIANGLE, RJM_INPUT_Y },
+		{ PS2_BTN_UP,       RJM_INPUT_DPAD_UP },
+		{ PS2_BTN_RIGHT,    RJM_INPUT_DPAD_RIGHT },
+		{ PS2_BTN_DOWN,     RJM_INPUT_DPAD_DOWN },
+		{ PS2_BTN_LEFT,     RJM_INPUT_DPAD_LEFT },
+		{ PS2_BTN_L1,       RJM_INPUT_L1 },
+		{ PS2_BTN_R1,       RJM_INPUT_R1 },
+		{ PS2_BTN_L2,       RJM_INPUT_L2 },
+		{ PS2_BTN_R2,       RJM_INPUT_R2 },
+		{ PS2_BTN_L3,       RJM_INPUT_L3 },
+		{ PS2_BTN_R3,       RJM_INPUT_R3 },
+		{ PS2_BTN_SELECT,   RJM_INPUT_SELECT },
+		{ PS2_BTN_START,    RJM_INPUT_START },
+	};
+	uint32_t inputs = 0;
+	size_t i;
 
-	if(rx < PS2_STICK_LOW)
+	for(i = 0; i < sizeof(k_inputs) / sizeof(k_inputs[0]); i++)
 	{
-		buttons |= PSP_CTRL_LEFT;
-	}
-	else if(rx > PS2_STICK_HIGH)
-	{
-		buttons |= PSP_CTRL_RIGHT;
-	}
-
-	if(ry < PS2_STICK_LOW)
-	{
-		buttons |= PSP_CTRL_UP;
-	}
-	else if(ry > PS2_STICK_HIGH)
-	{
-		buttons |= PSP_CTRL_DOWN;
+		if(ps2 & k_inputs[i].ps2)
+		{
+			inputs |= 1UL << k_inputs[i].input;
+		}
 	}
 
-	return buttons;
+	return inputs;
 }
 
-static uint32_t ps2_right_stick_to_face(uint8_t rx, uint8_t ry)
+static int16_t ps2_axis_to_s16(uint8_t value)
 {
-	uint32_t buttons = 0;
-
-	if(rx < PS2_FACE_SWAP_STICK_LOW)
-	{
-		buttons |= PSP_CTRL_SQUARE;
-	}
-	else if(rx > PS2_FACE_SWAP_STICK_HIGH)
-	{
-		buttons |= PSP_CTRL_CIRCLE;
-	}
-
-	if(ry < PS2_FACE_SWAP_STICK_LOW)
-	{
-		buttons |= PSP_CTRL_TRIANGLE;
-	}
-	else if(ry > PS2_FACE_SWAP_STICK_HIGH)
-	{
-		buttons |= PSP_CTRL_CROSS;
-	}
-
-	return buttons;
+	return (int16_t) (((int) value - PS2_ANALOG_CENTER) * 256);
 }
 
-static void ps2_rotate_left_analog_for_star_soldier(uint8_t in_x, uint8_t in_y,
-	uint8_t *out_x, uint8_t *out_y);
-static void update_right_stick_mode_toggle(uint32_t ps2_buttons);
+/* Same dead zone curve as config_model.c, kept on the 0-255 scale so a 0%
+ * dead zone passes the stick through unchanged. */
+static uint8_t ps2_apply_left_deadzone(uint8_t value, uint8_t percent)
+{
+	int delta = (int) value - PS2_ANALOG_CENTER;
+	int range = delta < 0 ? PS2_ANALOG_CENTER : 255 - PS2_ANALOG_CENTER;
+	int magnitude = abs_int(delta);
+	int threshold = range * percent / 100;
+
+	if(percent == 0)
+	{
+		return value;
+	}
+	if(magnitude <= threshold)
+	{
+		return PS2_ANALOG_CENTER;
+	}
+	magnitude = (magnitude - threshold) * range / (range - threshold);
+	return (uint8_t) clamp_int(PS2_ANALOG_CENTER + (delta < 0 ? -magnitude : magnitude), 0, 255);
+}
 
 static void clear_controller_state_value(struct ControllerState *state)
 {
@@ -893,40 +820,72 @@ static void clear_controller_state_value(struct ControllerState *state)
 	state->y = 128;
 }
 
-static void ps2_apply_standard_mapping(const uint8_t *rx,
-	struct ControllerState *state, uint32_t ps2_buttons, int use_global_modes)
+/* Applies the active Web-configured profile. START+Right (HOME),
+ * START+Left (PSP START+LEFT, the plugin's screen brightness combo) and
+ * START+R3 (next profile) are fixed and bypass the profile. */
+static void ps2_apply_profile_mapping(const uint8_t *rx,
+	struct ControllerState *state, uint32_t ps2_buttons, int player)
 {
-	state->buttons = ps2_buttons_to_psp(ps2_buttons);
+	const struct RjmMappingProfile *profile = rjm_mapping_active_profile();
+	struct RjmNormalizedState input;
+	struct RjmMappedState mapped;
+	uint32_t fixed = 0;
+	int start_pressed = (ps2_buttons & PS2_BTN_START) != 0;
+	int analog = ps2_is_analog_mode(rx[PS2_RESP_MODE]);
+	int profile_switch = 0;
+	int chord;
 
-	if(!ps2_is_analog_mode(rx[PS2_RESP_MODE]))
+	if(start_pressed && (ps2_buttons & PS2_BTN_RIGHT))
 	{
-		return;
+		ps2_buttons &= ~PS2_BTN_RIGHT;
+		fixed |= PSP_CTRL_HOME;
+	}
+	if(start_pressed && (ps2_buttons & PS2_BTN_LEFT))
+	{
+		ps2_buttons &= ~PS2_BTN_LEFT;
+		fixed |= PSP_CTRL_START | PSP_CTRL_LEFT;
+	}
+	if(start_pressed && (ps2_buttons & PS2_BTN_R3))
+	{
+		ps2_buttons &= ~PS2_BTN_R3;
+		profile_switch = 1;
 	}
 
-	if(use_global_modes)
+	memset(&input, 0, sizeof(input));
+	input.inputs = ps2_buttons_to_inputs(ps2_buttons);
+	if(analog)
 	{
-		g_ps2_analog_retry_start_ms = 0;
+		input.axis[RJM_AXIS_LEFT_X] = ps2_axis_to_s16(rx[PS2_RESP_LEFT_X]);
+		input.axis[RJM_AXIS_LEFT_Y] = ps2_axis_to_s16(rx[PS2_RESP_LEFT_Y]);
+		input.axis[RJM_AXIS_RIGHT_X] = ps2_axis_to_s16(rx[PS2_RESP_RIGHT_X]);
+		input.axis[RJM_AXIS_RIGHT_Y] = ps2_axis_to_s16(rx[PS2_RESP_RIGHT_Y]);
 	}
-	if(use_global_modes && g_right_stick_mode == RIGHT_STICK_MODE_DPAD)
+	rjm_apply_profile(profile, &input, &mapped);
+
+	chord = start_pressed && (profile_switch || mapped.combo);
+	if(chord && !g_combo_chord[player])
 	{
-		state->buttons |= ps2_right_stick_to_dpad(
-			rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
+		rjm_mapping_next_profile();
+		update_status_led();
 	}
-	else if(use_global_modes && g_right_stick_mode == RIGHT_STICK_MODE_FACE_SWAP)
+	if(chord)
 	{
-		state->buttons |= ps2_right_stick_to_face(
-			rx[PS2_RESP_RIGHT_X], rx[PS2_RESP_RIGHT_Y]);
+		g_combo_chord[player] = 1;
 	}
-	if(use_global_modes && g_right_stick_mode == RIGHT_STICK_MODE_STAR_SOLDIER)
+	else if(!start_pressed)
 	{
-		ps2_rotate_left_analog_for_star_soldier(
-			rx[PS2_RESP_LEFT_X], rx[PS2_RESP_LEFT_Y],
-			&state->x, &state->y);
+		g_combo_chord[player] = 0;
 	}
-	else
+	if(g_combo_chord[player])
 	{
-		state->x = rx[PS2_RESP_LEFT_X];
-		state->y = rx[PS2_RESP_LEFT_Y];
+		mapped.buttons &= ~PSP_CTRL_START;
+	}
+
+	state->buttons = mapped.buttons | fixed;
+	if(analog)
+	{
+		state->x = ps2_apply_left_deadzone(rx[PS2_RESP_LEFT_X], profile->left_deadzone_percent);
+		state->y = ps2_apply_left_deadzone(rx[PS2_RESP_LEFT_Y], profile->left_deadzone_percent);
 	}
 }
 
@@ -953,11 +912,19 @@ static int ps2_decode_poll_response(const uint8_t *rx,
 			state->buttons = ps2_popn_music_buttons_to_psp(*ps2_buttons);
 			return 1;
 		}
-
-		update_right_stick_mode_toggle(*ps2_buttons);
 	}
 
-	ps2_apply_standard_mapping(rx, state, *ps2_buttons, use_global_modes);
+	if(rx[PS2_RESP_MODE] == PS2_MODE_GUNCON)
+	{
+		state->buttons = ps2_guncon_buttons_to_psp(*ps2_buttons);
+		return 1;
+	}
+
+	if(use_global_modes && ps2_is_analog_mode(rx[PS2_RESP_MODE]))
+	{
+		g_ps2_analog_retry_start_ms = 0;
+	}
+	ps2_apply_profile_mapping(rx, state, *ps2_buttons, use_global_modes ? 0 : 1);
 	return 1;
 }
 
@@ -1089,43 +1056,6 @@ static void update_p2_state(int present, const struct ControllerState *state)
 	{
 		clear_controller_state_value(&g_p2_state);
 	}
-}
-
-static void ps2_rotate_left_analog_for_star_soldier(uint8_t in_x, uint8_t in_y,
-	uint8_t *out_x, uint8_t *out_y)
-{
-	*out_x = (uint8_t) clamp_int(PS2_ANALOG_CENTER +
-		(PS2_ANALOG_CENTER - (int) in_y), 0, 255);
-	*out_y = in_x;
-}
-
-static const char *right_stick_mode_name(int mode)
-{
-	switch(mode)
-	{
-		case RIGHT_STICK_MODE_DPAD:
-			return "right stick to D-pad";
-		case RIGHT_STICK_MODE_FACE_SWAP:
-			return "right stick to face buttons, face buttons to D-pad";
-		case RIGHT_STICK_MODE_STAR_SOLDIER:
-			return "Star Soldier D-pad rotate";
-		default:
-			return "off";
-	}
-}
-
-static void update_right_stick_mode_toggle(uint32_t ps2_buttons)
-{
-	int r3_pressed = (ps2_buttons & PS2_BTN_R3) != 0;
-
-	if((ps2_buttons & PS2_BTN_START) && r3_pressed && !g_last_ps2_r3_pressed)
-	{
-		g_right_stick_mode = (g_right_stick_mode + 1) % RIGHT_STICK_MODE_COUNT;
-		printf("Right stick mode: %s\n", right_stick_mode_name(g_right_stick_mode));
-		update_status_led();
-	}
-
-	g_last_ps2_r3_pressed = r3_pressed;
 }
 
 static int read_ps2_controller_state(struct ControllerState *state)
@@ -1268,6 +1198,61 @@ static int read_controller_state(struct ControllerState *state)
 	return 1;
 #endif
 }
+
+#if INPUT_SOURCE == INPUT_SOURCE_PS2
+/* Player 1 PS2 buttons, read directly or through a multitap. Returns 0 when
+ * no controller answers. */
+static int ps2_read_boot_buttons(uint32_t *ps2_buttons)
+{
+	uint8_t rx[PS2_RESPONSE_SIZE];
+	struct ControllerState state1;
+	struct ControllerState state2;
+	uint32_t ps2_buttons2;
+	uint8_t mode1;
+	uint8_t mode2;
+
+	if(ps2_poll_raw(rx) && rx[PS2_RESP_MODE] != 0x00 && rx[PS2_RESP_MODE] != 0xFF &&
+		rx[PS2_RESP_ID] == 0x5A)
+	{
+		*ps2_buttons = (~(((uint32_t) rx[PS2_RESP_BUTTON_HI] << 8) |
+			rx[PS2_RESP_BUTTON_LO])) & 0xFFFFUL;
+		return 1;
+	}
+
+	g_ps2_multitap_long_probe_last_ms = to_ms_since_boot(get_absolute_time()) -
+		PS2_MULTITAP_LONG_PROBE_INTERVAL_MS;
+	if(ps2_poll_multitap_long_slots(&state1, ps2_buttons, &mode1,
+		&state2, &ps2_buttons2, &mode2) && mode1 != 0)
+	{
+		return 1;
+	}
+	return 0;
+}
+
+/* L1+L2+D-pad Down held on the player 1 controller at power-on enters the
+ * Web configuration mode. */
+static int config_mode_requested(void)
+{
+	const uint32_t combo = PS2_BTN_L1 | PS2_BTN_L2 | PS2_BTN_DOWN;
+	uint32_t ps2_buttons;
+	int i;
+
+	for(i = 0; i < 10; i++)
+	{
+		if(ps2_read_boot_buttons(&ps2_buttons))
+		{
+			return (ps2_buttons & combo) == combo;
+		}
+		sleep_ms(20);
+	}
+	return 0;
+}
+#else
+static int config_mode_requested(void)
+{
+	return 0;
+}
+#endif
 
 static int event_queue_is_empty(void)
 {
@@ -1831,11 +1816,21 @@ void tuh_umount_cb(uint8_t daddr)
 
 int main(void)
 {
+	const tusb_rhport_init_t host_init = {
+		.role = TUSB_ROLE_HOST,
+		.speed = TUSB_SPEED_FULL,
+	};
+
 	stdio_init_all();
 	board_init();
+	rjm_mapping_load();
 	init_status_led();
 	init_controller_input();
-	tusb_init();
+	if(config_mode_requested())
+	{
+		rjm_config_portal_run(status_led_set_rgb);
+	}
+	tusb_init(0, &host_init);
 	clear_endpoints();
 
 	printf("\nRemoteJoyMinus standalone USB host\n");
@@ -1851,5 +1846,6 @@ int main(void)
 		poll_handshake_timeout();
 		poll_input_state();
 		process_event_queue();
+		rjm_mapping_poll();
 	}
 }
